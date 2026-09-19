@@ -137,5 +137,6 @@ Issues are very welcome; for anything more, please open an issue first.
 
 ## 👁️ See also
 
-- [Hecate](https://github.com/SgtSwagrid/Hecate), its sibling, for user accounts, groups and permissions.
+- [Hecate](https://github.com/SgtSwagrid/Hecate), a sibling, for user accounts, groups and permissions.
+- [Iris](https://github.com/SgtSwagrid/Iris), a sibling, a provider-agnostic client for large language models.
 - This library was made using [Scala Library Template](https://github.com/SgtSwagrid/scala-library-template).
