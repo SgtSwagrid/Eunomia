@@ -1,156 +1,141 @@
 <div align="center">
-  <h1>📚 Scala Library Template</h1>
-  <p>A reusable template for Scala libraries deployed to <a href="https://central.sonatype.com/">Maven Central</a>.</p>
-</div>
 
-<br><br>
+  <h1>🗂️ Eunomia</h1>
+  <p>Filtering, ordering and paging of lists for full stack <a href="https://www.scala-lang.org/">Scala</a> websites.</p>
 
-> "Perfection is achieved not when there is nothing more to add, but when there is nothing left to take away." — Antoine de Saint-Exupéry.
-
-<br>
-
-## 📋 What's included?
-
-1. Everything from [Scala Library Config](https://github.com/SgtSwagrid/scala-library-config), including reasonable [Scalafmt](https://scalameta.org/scalafmt/) settings, CI piplines for build integrity, and some IDE config.
-2. Automatic deployment to Maven Central using [sbt-ci-release](https://github.com/sbt/sbt-ci-release).
-3. Example build configuration and setup instructions.
-
-## 🔨 How to use this template
-
-### 1. Create your repository
-
-Click '[**Use this template**](https://github.com/new?template_name=scala-library-template&template_owner=SgtSwagrid)' on GitHub, and follow the instructions to create a new repository for your library.
-All files herein will be copied as-is.
-
-### 2. Configure [build.sbt](build.sbt) and [release.sbt](release.sbt)
-
-Replace every placeholder with real values for your project.
-The sbt settings necessary for publishing are defined by `sbt-ci-release` and are documented [here](https://github.com/sbt/sbt-ci-release?tab=readme-ov-file#sbt).
-
-#### Settings to update in `release.sbt`:
-
-| Name | Purpose | Example |
-| ---- | ------- | ------- |
-| `organization` | Your organisation's package namespace. | `org.nohungrydogs` |
-| `organizationName` | Your organisation's name. | `No Hungry Dogs` |
-| `organizationHomepage` | Your organisation's website. | `nohungrydogs.org` |
-| [`versionScheme`](https://www.scala-sbt.org/1.x/docs/Publishing.html#Version+scheme) | What does the version number say about binary compatibility? | `strict` |
-| `licenses` | The license under which your library is released. Update [`LICENSE.md`](LICENSE.md) to match. | [`MIT`](https://opensource.org/license/mit) |
-| `developers` | The individual developers who contribute to your library. | `SgtSwagrid` |
-
-#### Settings to update in `build.sbt`:
-
-| Name | Purpose | Example |
-| ---- | ------- | ------- |
-| `packagePrefix` | IntelliJ's implicit package prefix for all code files. | `org.nohungrydogs` |
-| Name of subproject (following `lazy val`) | Your library's name, or the name of a particular module. | `dog-food-finder` |
-
-#### Multiple modules
-
-Each subproject listed in `build.sbt` is published as a separate artefact on Maven (albeit under the same versioning),
-which is useful if you want a modular design whereby downstream users need not include all facets of your library.
-Typically in this case you'll introduce one top-level subdirectory for each subproject.
-
-#### A note on sbt settings
-
-Settings are read from every `.sbt` file in the project root.
-It doesn't matter what they are called, other than that sbt simply concatenates their contents in alphabetical order of their names.
-A division between build information and publishing information is introduced for convenience.
-
-### 3. Set up your Maven Central account
-
-1. Create an account on [Maven Central](https://central.sonatype.com) to enable publishing, if you don't already have one.
-2. [Register](https://central.sonatype.com/publishing/namespaces) your namespace (e.g. `org.nohungrydogs`).
-   This should match the `organization` setting in `release.sbt`.
-3. [Generate](https://central.sonatype.com/usertoken) a user token.
-   This will give you a username and password, which you can add as repository secrets (see [step 5](#5-add-repository-secrets)).
-
-### 4. Generate a PGP key for signing releases
-
-Execute the following on your local machine to generate a [PGP](https://en.wikipedia.org/wiki/Pretty_Good_Privacy) key:
-
-```bash
-# Generate a new PGP key, making sure to remember your passphrase:
-gpg --gen-key
-
-# Expose the secret key in base64, using the public key provided by the above:
-gpg --armor --export-secret-keys <PUBLIC_KEY> | base64
-
-# Upload the public key to a keyserver:
-gpg --keyserver keyserver.ubuntu.com --send-keys <PUBLIC_KEY>
-```
-
-### 5. Add repository secrets
-
-Add the following secrets to your repository on GitHub, to allow publishing as part of an automated workflow:
-
-| Secret                    | Value                                                                                                               |
-|---------------------------|---------------------------------------------------------------------------------------------------------------------|
-| `SONATYPE_USERNAME`       | Username from Maven user token in [step 3](#3-set-up-your-maven-central-account).                                   |
-| `SONATYPE_PASSWORD`       | Password from Maven user token in [step 3](#3-set-up-your-maven-central-account).                                   |
-| `PGP_SECRET`              | Base64-encoded PGP private key from [step 4](#4-generate-a-pgp-key-for-signing-releases).                           |
-| `PGP_PASSPHRASE`          | Passphrase used when generating the PGP key in [step 4](#4-generate-a-pgp-key-for-signing-releases).                |
-| `GH_TOKEN`                | Your GitHub [PAT](https://github.com/settings/personal-access-tokens) with administrator to access your repository. |
-| `CLAUDE_CODE_OAUTH_TOKEN` | API key from [Claude](https://claude.com/product/claude-code) for agentic workflows (optional).                     |
-
-Secrets can be added from the GitHub web interface by nagivating as follows from your repository's page:
-
-> **Settings → Secrets and variables → Actions**
-
-### 6. Publish the Scaladoc documentation with Github Pages
-
-This project is configured to automatically extract and publish all [Scaladoc](https://docs.scala-lang.org/style/scaladoc.html) content
-as a stand-alone website using [GitHub Pages](https://pages.github.com/).
-
-All you need to do is configure GitHub to deploy the site from the branch named `gh-pages`,
-which will be automatically created following the first release.
-You can find this setting under:
-
-> **Settings → Pages**
-
-## 👮‍♂️ License
-
-The included MIT license should be considered only as part of the template, and is not binding.
-This repository is hereby released to the public domain, to be used freely.
-In particular, and contra [LICENSE.md](LICENSE.md), you may remove the license text from copies.
-
-## 🤝 Contributing
-
-[CONTRIBUTING.md](CONTRIBUTING.md) is also part of the template, and does not _necessarily_ apply to contributions to the template itself.
-The most important thing to know is that many of the configuration files are automatically synced from [Scala Config](https://github.com/SgtSwagrid/scala-config), and should be updated there rather than here.
-
-## 👁️ See also
-
-- Check out [Scala Website Template](https://github.com/SgtSwagrid/scala-website-template) for a similar template to quickly start a new full stack website in Scala.
-- This project is configured by [Scala Library Config](https://github.com/SgtSwagrid/scala-library-config).
-
-<br/><br/><br/><br/>
-<h3 align="center">⬆️ Delete • Keep ⬇️</h3>
-<br/><br/><br/><br/>
-
-<div align="center">
-
-  <h1>✨ My Library</h1>
-  <p>A very cool Scala library that does something great.</p>
-  
-  <!-- Update the following URLS to show live build status in your README. -->
   <span>
-    <a href="https://github.com/SgtSwagrid/scala-library-template/actions/workflows/build-integrity.yml"><img src="https://github.com/SgtSwagrid/scala-library-template/actions/workflows/build-integrity.yml/badge.svg" alt="Build status" /></a>
-    <a href="https://search.maven.org/artifact/com.alecdorrington/scala-library-template_3"><img src="https://img.shields.io/maven-central/v/com.alecdorrington/scala-library-template_3.svg" alt="Maven Central" /></a>
-    <a href="https://alecdorrington.com/scala-library-template"><img src="https://img.shields.io/badge/docs-latest-blue.svg" alt="Documentation" /></a>
+    <a href="https://github.com/SgtSwagrid/Eunomia/actions/workflows/build-integrity.yml"><img src="https://github.com/SgtSwagrid/Eunomia/actions/workflows/build-integrity.yml/badge.svg" alt="Build status" /></a>
+    <a href="https://search.maven.org/artifact/com.alecdorrington/eunomia-core_3"><img src="https://img.shields.io/maven-central/v/com.alecdorrington/eunomia-core_3.svg" alt="Maven Central" /></a>
+    <a href="https://alecdorrington.com/Eunomia"><img src="https://img.shields.io/badge/docs-latest-blue.svg" alt="Documentation" /></a>
   </span>
-  
+
 </div>
+
+> [!WARNING]
+> Eunomia is in beta. It is young, it has one user, and anything may change between minor versions.
+
+A library for lists that people filter, order and page, whether the list is a
+handful of items or far too many to send to a browser, plus a [Laminar](https://laminar.dev/) table whose header row
+takes filters as typed text. It knows nothing of the application it serves.
+
+Named for [Eunomia](https://en.wikipedia.org/wiki/Eunomia), goddess of good order, and daughter of Themis.
 
 ## ⬇️ Installation
 
-Add the following dependency to your `build.sbt`:
+Add whichever halves you need to your `build.sbt`:
 
-<!-- Replace with the details for your own library. -->
 ```scala
-libraryDependencies += "com.alecdorrington" %% "scala-library-template" % "0.2.1"
+libraryDependencies += "com.alecdorrington" %% "eunomia-server" % "0.1.0" // On the JVM.
+libraryDependencies += "com.alecdorrington" %% "eunomia-client" % "0.1.0" // In the browser.
 ```
+
+Compiled with Scala `3.8.4`, with no intention to explicitly support older versions.
+
+## 🏯 Layout
+
+| Module | Platform | Contents |
+|--------|----------|----------|
+| [`eunomia-core`](core)     | JVM + JS | The query model, the shared list schema, and the endpoint inputs. |
+| [`eunomia-server`](server) | JVM      | Answering queries over a database table, with any Slick profile.  |
+| [`eunomia-client`](client) | JS       | Headless list state, and an unstyled table component.             |
+
+## Defining a list
+
+Describe the fields of a list once, in code shared by server and client:
+
+```scala
+import com.alecdorrington.eunomia.model.*
+
+object BookList:
+  val name   = Field.of[Book]("name", _.name)     // Field[Book, String]
+  val rating = Field.of[Book]("rating", _.rating) // Field[Book, Long], from an Option[Long]
+  val schema = Schema(name, rating)
+```
+
+## Serving it
+
+Map each field to the column storing it. The mapping is checked against the schema when the
+server starts, so a field cannot be forgotten. Restrict the rows to what the user may see, and
+hand over the query:
+
+```scala
+import com.alecdorrington.eunomia.api.ListApi
+import com.alecdorrington.eunomia.server.SqlLists
+
+val lists   = SqlLists(H2Profile)
+val columns = lists.columns(BookList.schema)(
+  lists.text[Books]("name")(_.name.?),
+  lists.whole[Books]("rating")(_.rating),
+)
+
+val listBooks = endpoint.get.in("api" / "books").in(ListApi.input).out(ListApi.reply[Book])
+
+listBooks.serverLogic(query =>
+  lists.answer(books.filter(_.owner === user).sortBy(_.id), columns, query)
+    .fold(problem => IO.pure(Left(problem)), action => db.run(action).map(Right(_))),
+)
+```
+
+## Showing it
+
+```scala
+import com.alecdorrington.eunomia.client.*
+
+val view = ListView(BookList.schema, ListSource.endpoint[Book]("/api/books"))
+// Or, for items the application already holds in a signal: ListSource.items(books)
+
+Table(
+  view,
+  List(Table.Column.of("Name", BookList.name), Table.Column.of("Rating", BookList.rating)),
+  key = _.id,
+)
+```
+
+## Where a query runs
+
+Nowhere in the application, deliberately: the library decides, per request.
+
+The server, which alone knows how many rows a user may see, answers a short list
+(`wholeUpTo`, 200 rows by default) by sending it whole. The client keeps it and runs every later
+query itself, so typing into a header cell filters instantly, with no further requests. A long
+list is filtered, ordered and paged in SQL instead, and only the window asked for is sent
+(at most `maxWindow` rows, 100 by default, whatever the request says). The client then sends each
+query once it has stopped changing, and discards replies to queries since superseded.
+
+Both paths give identical results, as the semantics are SQL's throughout: a comparison with an
+absent value never holds (`!(rating >= 50)` does include unrated books), absent values sort last
+in either direction, and text is sought ignoring case. The test suites check this agreement.
+
+The rules of thumb this encodes, for anyone tuning the thresholds:
+
+- **Short and bounded lists** (one user's own items, one project's labels) are cheapest sent once:
+  queries then cost nothing and answer instantly.
+- **Lists that grow with other people's activity** (every comment on a post, an audit log)
+  must be paged in the database, or bandwidth, memory and time to first paint grow without limit.
+- **Heavy items** (documents with their full text) should be listed as light summary rows, with the
+  full item fetched on selection, whichever path the list takes.
+- **Access control always stays on the server**, in the base query handed to `answer`: the whole
+  list sent to a browser is only ever the rows its user may see.
+- **Ordering reveals what it orders by**, even with the values hidden: a list sorted by a withheld
+  field leaks its ranking. A list can only be filtered and ordered by the fields of its schema,
+  and `columns` must store exactly those, so give a list whose readers may not see a field its
+  own schema without that field, rather than hiding the column's values.
+- **Indexes** matter once lists are long: ordering or filtering by an unindexed column is a full scan.
+
+## Typing a filter
+
+A person filters one column at a time, typing into its header cell. `CellFilter` reads that text
+against the column's kind: `novel`, `!draft`, `=Alpha` for text; `>=50 <80`, `50..80`, `!=0` for
+numbers; `yes`/`no` for truth values; `?` or `!?` for absence and presence; `|` between alternatives.
+Queries built in code compose the same way: `(rating >= 50L && !name.contains("draft")) || rating.missing`.
+
+## 🤝 Contributing
+
+Eunomia is developed as part of a larger private project, of which this repository is an automatically synchronised
+mirror (by [GitHub Graph](https://github.com/SgtSwagrid/github-graph)), so changes made here directly would be overwritten.
+Issues are very welcome; for anything more, please open an issue first.
 
 ## 👁️ See also
 
+- [Hecate](https://github.com/SgtSwagrid/Hecate), its sibling, for user accounts, groups and permissions.
 - This library was made using [Scala Library Template](https://github.com/SgtSwagrid/scala-library-template).

@@ -11,7 +11,37 @@ Keep it concise and actionable.
 
 ## Project overview
 
-This is a Scala library that does ...
+This is Eunomia, a Scala 3 library for filtering, ordering and paging lists of items, whether in memory,
+in a database or over the wire, for full stack websites built on Tapir, Slick and Laminar. It is in beta.
+
+- `core` (`com.alecdorrington.eunomia`, JVM + JS) - `model/ListQuery`, `Filter`, `Order`, `Page`, `Schema` for
+  in-memory evaluation, `ListReply` as either the whole list or one window, and `api/ListApi` for the wire.
+- `server` (`com.alecdorrington.eunomia.server`) - `SqlLists` runs a query in SQL over the host's JDBC profile.
+- `client` (`com.alecdorrington.eunomia.client`) - `ListSource`, `ListView` and an unstyled `Table`.
+  `ListSource` was named `Source` once and clashed with Laminar's `L.*`; don't reintroduce that.
+
+See [README.md](README.md) for how a host wires it up.
+
+### Where this code lives
+
+This repository is a mirror. The library is developed inside a larger private project, beneath `eunomia/`, and every file
+here is copied from there by [GitHub Graph](https://github.com/SgtSwagrid/github-graph) whenever that project's `main`
+changes, overwriting whatever is here. So make changes there, never here. The shared configuration (workflows, Scalafmt, IDE settings, `project/plugins-*.sbt`
+other than `plugins-scalajs.sbt`) comes from further upstream still, in
+[Scala Library Config](https://github.com/SgtSwagrid/scala-library-config), which syncs into the private project's `eunomia/` first.
+`build.sbt`, `release.sbt`, `project/Dependencies.scala`, `README.md` and this file belong to the library.
+
+### Build
+
+- `eunomiaCore` is a `projectMatrix` (JVM + JS; the JS row is `eunomiaCoreJS`), `eunomiaServer` is JVM, `eunomiaClient` is
+  Scala.js, and the root project `eunomia` only aggregates them and is never published.
+- Project ids are prefixed with the library's name because the private project includes this build by reference
+  (`ProjectRef(file("eunomia"), ...)`), and its own projects are called `server`, `client` and `common`.
+- The matrix pins `sourceDirectory` to `(ThisBuild / baseDirectory) / "core" / "src"`. Don't remove it: sbt 2.0.8
+  resolves a matrix's sources against the working directory, which is the host's when the build is included by reference,
+  and the library then compiles to an empty JAR without a single error of its own.
+- The library must never depend on anything in the project that includes it, and nothing here should assume a host, a database or a JDBC profile.
+- Versions come from git tags (`sbt-ci-release`); publishing a GitHub release publishes to Maven Central.
 
 ## Instructions
 
