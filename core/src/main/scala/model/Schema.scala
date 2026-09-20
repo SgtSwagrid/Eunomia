@@ -1,7 +1,7 @@
 package com.alecdorrington.eunomia
 package model
 
-import com.alecdorrington.eunomia.model.Filter.*
+import java.util.Locale
 
 /**
   * The fields of the items in a list, for running [[ListQuery]]s over the items
@@ -9,18 +9,21 @@ import com.alecdorrington.eunomia.model.Filter.*
   * large to be, the same queries can be run in a database instead.
   *
   * @param fields
-  *   The fields a query may filter and order by.
+  *   The fields a query may filter and order by, no two of one name.
   */
 final class Schema[X](val fields: List[Field[X, ?]]):
-
-  /** The kind of each field, by name. */
-  val kinds: Map[String, Kind] = fields
-    .map(field => field.name -> field.kind)
-    .toMap
 
   private val byName: Map[String, Field[X, ?]] = fields
     .map(field => field.name -> field)
     .toMap
+
+  require(
+    repeated.isEmpty,
+    s"More than one field is named ${ repeated.mkString("`", "`, `", "`") }.",
+  )
+
+  /** The kind of each field, by name. */
+  val kinds: Map[String, Kind] = byName.view.mapValues(_.kind).toMap
 
   /**
     * Runs a query over the given items, which are taken to be in stored order.
@@ -36,20 +39,27 @@ final class Schema[X](val fields: List[Field[X, ?]]):
     * Whether one item satisfies a filter. Unchecked, so a comparison with an
     * unknown field simply never holds.
     */
-  def matches(filter: Filter)(item: X): Boolean = filter match
-    case Not(inner)                        => !matches(inner)(item)
-    case And(inners)                       => inners.forall(matches(_)(item))
-    case Or(inners)                        => inners.exists(matches(_)(item))
-    case Compare(field, comparison, value) => valueOf(field, item).exists(
-        actual => comparison.holds(Ordering[Value].compare(actual, value)),
-      )
-    case Contains(field, text) => valueOf(field, item).exists:
-        case Value.Text(actual) => actual.toLowerCase.contains(text.toLowerCase)
-        case _                  => false
-    case OneOf(field, values) => valueOf(field, item).exists(actual =>
+  def matches(filter: Filter)(item: X): Boolean = filter.fold(
+    not = !_,
+    all = _.forall(identity),
+    any = _.exists(identity),
+    compare = (field, comparison, value) =>
+      valueOf(field, item).exists(actual =>
+        comparison.holds(Ordering[Value].compare(actual, value)),
+      ),
+    contains = (field, text) => valueOf(field, item).exists(within(_, text)),
+    oneOf = (field, values) =>
+      valueOf(field, item).exists(actual =>
         values.exists(Ordering[Value].equiv(actual, _)),
-      )
-    case Missing(field) => valueOf(field, item).isEmpty
+      ),
+    missing = field => valueOf(field, item).isEmpty,
+  )
+
+  /** Whether a value is text holding the given text, ignoring case. */
+  private def within(value: Value, text: String): Boolean = value match
+    case Value.Text(actual) =>
+      actual.toLowerCase(Locale.ROOT).contains(text.toLowerCase(Locale.ROOT))
+    case _ => false
 
   /** Orders items by the given keys, placing absent values last. */
   def ordering(keys: List[Order]): Ordering[X] = (left, right) =>
@@ -62,6 +72,7 @@ final class Schema[X](val fields: List[Field[X, ?]]):
     Paged(
       query.page.fold(matching)(_.slice(matching)),
       matching.size,
+      query.page,
     )
 
   private def compare(key: Order, left: X, right: X): Int =
@@ -73,6 +84,12 @@ final class Schema[X](val fields: List[Field[X, ?]]):
   private def valueOf(field: String, item: X): Option[Value] = byName
     .get(field)
     .flatMap(_.valueOf(item))
+
+  /** The names given to more than one field, which a schema may not have. */
+  private def repeated: List[String] = fields
+    .groupBy(_.name)
+    .collect { case (name, alike) if alike.sizeIs > 1 => name }
+    .toList
 
 object Schema:
 

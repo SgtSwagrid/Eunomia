@@ -37,8 +37,9 @@ class ListApiSuite extends FunSuite:
     assert(decode[Filter]("""{"field":"rating","is":"~","value":1}""").isLeft)
 
   test("both shapes of reply survive the wire"):
-    val window: ListReply[Int] = ListReply.Window(Paged(List(3, 4), 10))
-    val whole: ListReply[Int]  = ListReply.Whole(List(1, 2, 3))
+    val window: ListReply[Int] =
+      ListReply.Window(Paged(List(3, 4), 10, Some(Page(2, 2))))
+    val whole: ListReply[Int] = ListReply.Whole(List(1, 2, 3))
     assertEquals(
       decode[ListReply[Int]](window.asJson.noSpaces),
       Right(window),
@@ -56,7 +57,7 @@ class ListApiSuite extends FunSuite:
     )
     assertEquals(
       ListReply.Whole(List(1, 2, 3)).answer(schema, query),
-      Right(Paged(List(2), 2)),
+      Right(Paged(List(2), 2, Some(Page(0, 1)))),
     )
 
   test("a query is written as parameters, omitting the defaults"):
@@ -66,7 +67,7 @@ class ListApiSuite extends FunSuite:
       Some(Page(20, 10)),
     )
     assertEquals(
-      ListApi.params(query),
+      ListParams.of(query),
       List(
         "filter" -> """{"field":"rating","is":">=","value":50}""",
         "sort"   -> "-rating,name",
@@ -74,4 +75,4 @@ class ListApiSuite extends FunSuite:
         "limit"  -> "10",
       ),
     )
-    assertEquals(ListApi.params(ListQuery()), List.empty)
+    assertEquals(ListParams.of(ListQuery()), List.empty)

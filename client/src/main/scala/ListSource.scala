@@ -1,7 +1,7 @@
 package com.alecdorrington.eunomia
 package client
 
-import com.alecdorrington.eunomia.api.ListApi
+import com.alecdorrington.eunomia.api.ListParams
 import com.alecdorrington.eunomia.model.{ListQuery, ListReply, Paged, Schema}
 import com.raquo.laminar.api.L.*
 import io.circe.{Decoder, Encoder}
@@ -141,8 +141,8 @@ object ListSource:
 
   /** The address of one query against an endpoint. */
   private def address(url: String, query: ListQuery): String =
-    val params = ListApi
-      .params(query)
+    val params = ListParams
+      .of(query)
       .map((key, value) => s"$key=${ encodeURIComponent(value) }")
     if params.isEmpty then url
     else

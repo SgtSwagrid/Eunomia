@@ -249,9 +249,65 @@ class SqlListsSuite extends FunSuite:
       .map(reply =>
         assertEquals(
           reply,
-          ListReply.Window(Paged(data.take(2), data.size)),
+          ListReply.Window(Paged(
+            data.take(2),
+            data.size,
+            Some(Page(0, 2)),
+          )),
         ),
       )
+
+  test("a window narrowed by the server says which window it is"):
+    val long   = SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2)
+    val stored = long.columns(schema)(
+      long.text[Rows]("name")(_.name.?),
+      long.whole[Rows]("rating")(_.rating),
+      long.real[Rows]("score")(_.score.?),
+      long.flag[Rows]("inPrint")(_.inPrint.?),
+    )
+    val action = long
+      .answer(
+        rows.sortBy(_.id),
+        stored,
+        ListQuery(page = Some(Page(1, 500))),
+      )
+      .fold(fail(_), identity)
+    db.run(action)
+      .map(reply =>
+        assertEquals(
+          reply,
+          ListReply.Window(Paged(
+            data.slice(1, 3),
+            data.size,
+            Some(Page(1, 2)),
+          )),
+        ),
+      )
+
+  test("the length of a list is decided from a bounded read"):
+    val sql = SqlLists(H2Profile, wholeUpTo = 200)
+      .probe(rows.sortBy(_.id))
+      .result
+      .statements
+      .head
+    assert(sql.contains("limit 201"), sql)
+
+  test("a list one row too long to be sent whole is paged instead"):
+    val long   = SqlLists(H2Profile, wholeUpTo = data.size - 1)
+    val stored = long.columns(schema)(
+      long.text[Rows]("name")(_.name.?),
+      long.whole[Rows]("rating")(_.rating),
+      long.real[Rows]("score")(_.score.?),
+      long.flag[Rows]("inPrint")(_.inPrint.?),
+    )
+    val action = long
+      .answer(rows.sortBy(_.id), stored, ListQuery())
+      .fold(fail(_), identity)
+    db.run(action)
+      .map(assertEquals(
+        _,
+        ListReply.Window(Paged(data, data.size, Some(Page(0, 100)))),
+      ))
 
   test("a list drawn from a left join is queried by the joined columns"):
     val name   = Field.of[(Row, Option[Note])]("name", _._1.name)

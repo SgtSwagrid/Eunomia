@@ -99,8 +99,10 @@ The server, which alone knows how many rows a user may see, answers a short list
 (`wholeUpTo`, 200 rows by default) by sending it whole. The client keeps it and runs every later
 query itself, so typing into a header cell filters instantly, with no further requests. A long
 list is filtered, ordered and paged in SQL instead, and only the window asked for is sent
-(at most `maxWindow` rows, 100 by default, whatever the request says). The client then sends each
-query once it has stopped changing, and discards replies to queries since superseded.
+(at most `maxWindow` rows, 100 by default, whatever the request says). The reply says which
+window it is, so the browser pages by what it was given rather than by what it asked for.
+The client sends each query once it has stopped changing, and discards replies to queries
+since superseded.
 
 Both paths give identical results, as the semantics are SQL's throughout: a comparison with an
 absent value never holds (`!(rating >= 50)` does include unrated books), absent values sort last

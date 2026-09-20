@@ -5,9 +5,9 @@ import com.alecdorrington.eunomia.model.{
   Filter, ListQuery, ListReply, Order, Page, Paged,
 }
 import io.circe.{Decoder, Encoder}
-import io.circe.parser.decode
-import io.circe.syntax.*
-import sttp.tapir.*
+// Tapir describes a JSON body with a `Schema` of its own, which is not the
+// [[com.alecdorrington.eunomia.model.Schema]] a list is described by:
+import sttp.tapir.{Schema as JsonSchema, *}
 import sttp.tapir.json.circe.*
 
 /**
@@ -25,12 +25,12 @@ object ListApi:
   val filter: EndpointInput.Query[Filter] = query[Option[String]]("filter")
     .mapDecode(_.fold[DecodeResult[Filter]](DecodeResult.Value(Filter.always))(
       decodeFilter,
-    ))(encodeFilter)
+    ))(ListParams.filter)
     .description("The filter items must satisfy, as JSON.")
 
   /** The `sort` parameter: comma-separated fields, each `-` if descending. */
   val sort: EndpointInput.Query[List[Order]] = query[Option[String]]("sort")
-    .map(_.fold(List.empty[Order])(Order.parseAll))(encodeOrder)
+    .map(_.fold(List.empty[Order])(Order.parseAll))(ListParams.sort)
     .description("The fields ordered by, e.g. `-rating,name`.")
 
   /** The `offset` and `limit` parameters, all items being sent without a limit. */
@@ -50,38 +50,18 @@ object ListApi:
     )
 
   /** A reply to a list query: the whole list, or the window asked for. */
-  def reply[X : {Encoder, Decoder, Schema}]
+  def reply[X : {Encoder, Decoder, JsonSchema}]
     : EndpointIO.Body[String, ListReply[X]] = jsonBody[ListReply[X]]
 
-  /**
-    * The query parameters [[input]] reads the given query from, for clients
-    * building a request by hand. Values are not yet URL-encoded.
-    */
-  def params(query: ListQuery): List[(String, String)] = encodeFilter(
-    query.filter,
-  ).map("filter" -> _).toList ++ encodeOrder(query.order).map("sort" -> _) ++
-    query
-      .page
-      .toList
-      .flatMap(window =>
-        List(
-          "offset" -> window.offset.toString,
-          "limit"  -> window.limit.toString,
-        ),
-      )
+  private given JsonSchema[Page] = JsonSchema.derived
 
-  private given [X : Schema]: Schema[Paged[X]] = Schema.derived
+  private given [X : JsonSchema]: JsonSchema[Paged[X]] = JsonSchema.derived
 
-  private given [X : Schema]: Schema[ListReply[X]] = Schema.derived
+  private given [X : JsonSchema]: JsonSchema[ListReply[X]] = JsonSchema.derived
 
-  private def decodeFilter(text: String): DecodeResult[Filter] =
-    decode[Filter](text).fold(
-      error => DecodeResult.Error(text, error),
+  private def decodeFilter(text: String): DecodeResult[Filter] = ListParams
+    .parseFilter(text)
+    .fold(
+      problem => DecodeResult.Error(text, Exception(problem)),
       DecodeResult.Value(_),
     )
-
-  private def encodeFilter(filter: Filter): Option[String] =
-    Option.when(filter != Filter.always)(filter.asJson.noSpaces)
-
-  private def encodeOrder(order: List[Order]): Option[String] =
-    Option.when(order.nonEmpty)(Order.textOf(order))

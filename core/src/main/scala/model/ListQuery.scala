@@ -69,24 +69,28 @@ object ListQuery:
   /** Checks one filter as [[ListQuery.checked]] describes. */
   private def check
     (filter: Filter, kinds: Map[String, Kind])
-    : Either[String, Filter] = filter match
-    case Not(inner)  => check(inner, kinds).map(Not(_))
-    case And(inners) => inners.traverse(check(_, kinds)).map(And(_))
-    case Or(inners)  => inners.traverse(check(_, kinds)).map(Or(_))
-    case Compare(field, comparison, value) => kindOf(field, kinds)
+    : Either[String, Filter] = filter.fold[Either[String, Filter]](
+    not = _.map(Not(_)),
+    all = _.sequence.map(And(_)),
+    any = _.sequence.map(Or(_)),
+    compare = (field, comparison, value) =>
+      kindOf(field, kinds)
         .flatMap(convert(field, value, _))
-        .map(Compare(field, comparison, _))
-    case Contains(field, _) => kindOf(field, kinds).flatMap(kind =>
+        .map(Compare(field, comparison, _)),
+    contains = (field, text) =>
+      kindOf(field, kinds).flatMap(kind =>
         Either.cond(
           kind == Kind.Text,
-          filter,
+          Contains(field, text),
           s"`$field` does not hold text.",
         ),
-      )
-    case OneOf(field, values) => kindOf(field, kinds)
+      ),
+    oneOf = (field, values) =>
+      kindOf(field, kinds)
         .flatMap(kind => values.traverse(convert(field, _, kind)))
-        .map(OneOf(field, _))
-    case Missing(field) => kindOf(field, kinds).as(filter)
+        .map(OneOf(field, _)),
+    missing = field => kindOf(field, kinds).as(Missing(field)),
+  )
 
   /** The kind of the named field, or a complaint that there is no such field. */
   private def kindOf

@@ -74,20 +74,51 @@ object CellFilter:
   private def condition
     (field: String, kind: Kind, token: String)
     : Either[String, Filter] = token match
-    case s"$low..$high" => (number(kind, low), number(kind, high)).mapN(
-        (min, max) => Compare(field, Ge, min) && Compare(field, Le, max),
-      )
-    case _ => Comparison
-        .bySymbolLength
-        .find(comparison => token.startsWith(comparison.symbol))
-        .fold(number(kind, token).map(Compare(field, Eq, _)))(comparison =>
-          number(
-            kind,
-            token.drop(comparison.symbol.length),
-          ).map(Compare(field, comparison, _)),
-        )
+    case s"$low..$high"           => range(field, kind, low, high)
+    case Operator(comparison, of) =>
+      number(kind, of).map(Compare(field, comparison, _))
+    case exact => number(kind, exact).map(Compare(field, Eq, _))
 
-  private def number(kind: Kind, text: String): Either[String, Value] = text
-    .toDoubleOption
-    .flatMap(Value.Real(_).as(kind))
-    .toRight(s"`$text` is not a ${ kind.noun }.")
+  /**
+    * The inclusive range between two bounds. Bounds the wrong way round hold
+    * nowhere, which is a mistyping far more often than it is a request for
+    * nothing, so they are refused rather than quietly matching no item.
+    */
+  private def range
+    (
+      field: String,
+      kind: Kind,
+      low: String,
+      high: String,
+    )
+    : Either[String, Filter] = (number(kind, low), number(kind, high))
+    .tupled
+    .flatMap((least, greatest) =>
+      Either.cond(
+        Ordering[Value].lteq(least, greatest),
+        Compare(field, Ge, least) && Compare(field, Le, greatest),
+        s"`$low..$high` holds nothing, as `$low` is above `$high`.",
+      ),
+    )
+
+  /** A comparison written as its operator, and whatever follows it. */
+  private object Operator:
+
+    def unapply(token: String): Option[(Comparison, String)] = Comparison
+      .bySymbolLength
+      .find(comparison => token.startsWith(comparison.symbol))
+      .map(comparison => (comparison, token.drop(comparison.symbol.length)))
+
+  /**
+    * A number of the given kind, read exactly wherever it can be: a whole
+    * number too large for a `Double` to hold is still read as itself.
+    */
+  private def number(kind: Kind, text: String): Either[String, Value] =
+    if text.isEmpty then Left(s"A ${ kind.noun } is missing.")
+    else
+      text
+        .toLongOption
+        .map(Value.Whole(_))
+        .orElse(text.toDoubleOption.map(Value.Real(_)))
+        .flatMap(_.as(kind))
+        .toRight(s"`$text` is not a ${ kind.noun }.")
