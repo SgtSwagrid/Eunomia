@@ -42,11 +42,23 @@ object Page:
   *
   * @param total
   *   The number of items in the whole filtered list, across every window.
+  *
+  * @param page
+  *   The window these items are of, as it was answered, which need not be the
+  *   one asked for: a server may send a smaller window than was requested, and
+  *   says here which it sent. `None` where the items are the whole of the
+  *   filtered list.
   */
-final case class Paged[X](items: List[X], total: Int):
+final case class Paged[X]
+  (
+    items: List[X],
+    total: Int,
+    page: Option[Page] = None,
+  ):
 
   /** The same window, with each item transformed. */
-  def map[Y](transform: X => Y): Paged[Y] = Paged(items.map(transform), total)
+  def map[Y](transform: X => Y): Paged[Y] =
+    Paged(items.map(transform), total, page)
 
 object Paged:
 
@@ -58,7 +70,9 @@ object Paged:
 
   // Written by hand, as a derived codec would demand a whole codec of `X`.
   given [X : Encoder]: Encoder[Paged[X]] =
-    Encoder.forProduct2("items", "total")(paged => (paged.items, paged.total))
+    Encoder.forProduct3("items", "total", "page")(paged =>
+      (paged.items, paged.total, paged.page),
+    )
 
   given [X : Decoder]: Decoder[Paged[X]] =
-    Decoder.forProduct2("items", "total")(Paged.apply[X])
+    Decoder.forProduct3("items", "total", "page")(Paged.apply[X])

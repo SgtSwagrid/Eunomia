@@ -1,6 +1,7 @@
 package com.alecdorrington.eunomia
 package model
 
+import java.util.Locale
 import munit.FunSuite
 
 class SchemaSuite extends FunSuite:
@@ -41,6 +42,13 @@ class SchemaSuite extends FunSuite:
         "inPrint" -> Kind.Flag,
       ),
     )
+
+  test("a schema may not name two fields alike"):
+    intercept[IllegalArgumentException](Schema(
+      name,
+      rating,
+      Field.of[Book]("name", _.pages),
+    ))
 
   test("a comparison never holds for an absent value"):
     assertEquals(
@@ -120,6 +128,10 @@ class SchemaSuite extends FunSuite:
       Right(List("Delta", "Gamma")),
     )
     assertEquals(paged.map(_.total), Right(4))
+    assertEquals(
+      paged.map(_.page),
+      Right(Some(Page(1, 2))),
+    )
 
   test("an unknown field is refused"):
     assert(
@@ -220,3 +232,18 @@ class SchemaSuite extends FunSuite:
     )
     assertEquals(Order.textOf(keys), "-rating,name")
     assertEquals(Order.parseAll("-rating, name,"), keys)
+
+  test("case is folded alike whatever the default locale"):
+    val original = Locale.getDefault
+    try
+      Locale.setDefault(Locale.forLanguageTag("tr"))
+      assertEquals(
+        schema
+          .run(
+            ListQuery(name.contains("iliad")),
+            List(Book("ILIAD", None, 1, inPrint = true)),
+          )
+          .map(_.items.size),
+        Right(1),
+      )
+    finally Locale.setDefault(original)

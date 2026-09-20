@@ -38,7 +38,7 @@ lazy val eunomiaCore = projectMatrix
     Dependencies.tapir,
     Dependencies.circe,
     Dependencies.cats,
-    Dependencies.munitCatsEffect,
+    Dependencies.munit,
   )
   .jvmPlatform(scalaVersions = Seq(scala3))
   .jsPlatform(scalaVersions = Seq(scala3))
@@ -56,7 +56,7 @@ lazy val eunomiaServer = project
     Dependencies.database,
     Dependencies.circe,
     Dependencies.cats,
-    Dependencies.munitCatsEffect,
+    Dependencies.munit,
   )
 
 /**
@@ -74,7 +74,7 @@ lazy val eunomiaClient = project
     Dependencies.laminar,
     Dependencies.circe,
     Dependencies.cats,
-    Dependencies.munitCatsEffect,
+    Dependencies.munit,
   )
 
 lazy val eunomia = project

@@ -186,7 +186,8 @@ object Table:
       "‹",
       cls := "list-page",
       disabled <-- view.page.map(_.forall(_.offset == 0)),
-      onClick --> (_ => view.previousPage()),
+      onClick.compose(_.sample(view.page)) -->
+        (_.foreach(window => view.showPage(window.previous))),
     ),
     span(
       cls := "list-range",
@@ -196,7 +197,8 @@ object Table:
       "›",
       cls := "list-page",
       disabled <-- view.page.combineWith(view.total).mapN(atEnd),
-      onClick --> (_ => view.nextPage()),
+      onClick.compose(_.sample(view.page)) -->
+        (_.foreach(window => view.showPage(window.next))),
     ),
   )
 

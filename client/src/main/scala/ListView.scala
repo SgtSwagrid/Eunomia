@@ -37,7 +37,7 @@ final class ListView[X]
 
   private val keys: Var[List[Order]] = Var(initial.order)
 
-  private val window: Var[Option[Page]] = Var(initial.page)
+  private val asked: Var[Option[Page]] = Var(initial.page)
 
   /**
     * Everything the items shown must satisfy. A cell whose text cannot be read
@@ -56,16 +56,21 @@ final class ListView[X]
   /** The keys the items are ordered by, most significant first. */
   val order: Signal[List[Order]] = keys.signal
 
-  /** The window shown, or `None` while every item is. */
-  val page: Signal[Option[Page]] = window.signal
-
   /** The whole query, as it changes. */
   val query: Signal[ListQuery] = filter
-    .combineWith(order, page)
+    .combineWith(order, asked.signal)
     .mapN(ListQuery(_, _, _))
 
   private val loaded: Signal[Either[String, Paged[X]]] =
     source.load(schema, query)
+
+  /**
+    * The window shown, as it was answered rather than as it was asked for: a
+    * long list is answered with a window even where none was asked for, and
+    * with a smaller one than was asked for where the server caps it. `None`
+    * while every item is shown.
+    */
+  val page: Signal[Option[Page]] = loaded.map(_.toOption.flatMap(_.page))
 
   /** The items shown, in order. */
   val items: Signal[List[X]] = loaded.map(_.fold(_ => List.empty, _.items))
@@ -109,13 +114,13 @@ final class ListView[X]
     keys.update(Order.toggled(_, field))
     rewind()
 
-  /** Moves to the next window. */
-  def nextPage(): Unit = window.update(_.map(_.next))
+  /**
+    * Shows the given window of the list. Take it from [[page]], which says
+    * which window is shown and how large a one the server will answer with.
+    */
+  def showPage(window: Page): Unit = asked.set(Some(window))
 
-  /** Moves to the previous window. */
-  def previousPage(): Unit = window.update(_.map(_.previous))
-
-  private def rewind(): Unit = window.update(_.map(_.copy(offset = 0)))
+  private def rewind(): Unit = asked.update(_.map(_.copy(offset = 0)))
 
   private def parsed(field: String, text: String): Either[String, Filter] =
     kindOf(field)

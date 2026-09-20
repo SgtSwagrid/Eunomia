@@ -53,6 +53,64 @@ enum Filter:
     case Filter.Not(filter) => filter
     case _                  => Filter.Not(this)
 
+  /**
+    * This filter as whatever a filter describes: a truth value for one item, a
+    * condition in a database query, or anything else of the same shape. The
+    * three cases which hold filters of their own are folded through, so that an
+    * interpreter says only what each leaf means, and cannot disagree with
+    * another about what surrounds them.
+    *
+    * @param not
+    *   Holds where the filter it is given does not.
+    *
+    * @param all
+    *   Holds where every one of them does, including where there are none.
+    *
+    * @param any
+    *   Holds where any one of them does, excluding where there are none.
+    *
+    * @param compare
+    *   A field, how it is compared, and what it is compared with.
+    *
+    * @param contains
+    *   A text field, and the text sought within it.
+    *
+    * @param oneOf
+    *   A field, and the values any one of which it may equal.
+    *
+    * @param missing
+    *   A field which has no value.
+    */
+  def fold[A]
+    (
+      not: A => A,
+      all: List[A] => A,
+      any: List[A] => A,
+      compare: (String, Comparison, Value) => A,
+      contains: (String, String) => A,
+      oneOf: (String, List[Value]) => A,
+      missing: String => A,
+    )
+    : A =
+    def of(filter: Filter): A = filter.fold(
+      not,
+      all,
+      any,
+      compare,
+      contains,
+      oneOf,
+      missing,
+    )
+    this match
+      case Filter.Not(filter)                       => not(of(filter))
+      case Filter.And(filters)                      => all(filters.map(of))
+      case Filter.Or(filters)                       => any(filters.map(of))
+      case Filter.Compare(field, comparison, value) =>
+        compare(field, comparison, value)
+      case Filter.Contains(field, text) => contains(field, text)
+      case Filter.OneOf(field, values)  => oneOf(field, values)
+      case Filter.Missing(field)        => missing(field)
+
 object Filter:
 
   /** The filter that holds everywhere. */

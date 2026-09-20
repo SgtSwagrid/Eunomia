@@ -15,7 +15,7 @@ object Dependencies:
     val scalajs         = "2.8.1"
     val laminar         = "17.0.0"
     val laminext        = "0.17.0"
-    val munitCatsEffect = "2.2.0"
+    val munit           = "1.2.4"
 
   /** Library dependencies associated with Tapir, for defining API endpoints. */
   lazy val tapir = libraryDependencies ++= Seq(
@@ -25,9 +25,8 @@ object Dependencies:
 
   /** Library dependencies associated with Circe, for JSON parsing. */
   lazy val circe = libraryDependencies ++= Seq(
-    "io.circe" %% "circe-core"    % V.circe,
-    "io.circe" %% "circe-generic" % V.circe,
-    "io.circe" %% "circe-parser"  % V.circe,
+    "io.circe" %% "circe-core"   % V.circe,
+    "io.circe" %% "circe-parser" % V.circe,
   )
 
   /** Library dependencies associated with cats, for FP abstractions. */
@@ -56,6 +55,6 @@ object Dependencies:
     "io.laminext" %% "fetch-circe" % V.laminext,
   )
 
-  /** Library dependencies for testing with MUnit and Cats Effect. */
-  lazy val munitCatsEffect = libraryDependencies ++=
-    Seq("org.typelevel" %% "munit-cats-effect" % V.munitCatsEffect % Test)
+  /** Library dependencies for testing with MUnit. */
+  lazy val munit = libraryDependencies ++=
+    Seq("org.scalameta" %% "munit" % V.munit % Test)

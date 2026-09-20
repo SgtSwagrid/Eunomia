@@ -87,12 +87,38 @@ class CellFilterSuite extends FunSuite:
       ))),
     )
 
+  test("a range whose bounds are the wrong way round is refused"):
+    assert(whole("80..50").isLeft)
+    assert(real("1...2").isLeft)
+
+  test("a range missing a bound is refused"):
+    assert(whole("..80").isLeft)
+    assert(whole("50 .. 80").isLeft)
+
   test("a number must be of the field's kind"):
     assert(whole("50.5").isLeft)
     assert(whole("abc").isLeft)
     assertEquals(
       real("50.5"),
       Right(Compare("score", Eq, Value.Real(50.5))),
+    )
+
+  test("a whole number too large for a double is read exactly"):
+    assertEquals(
+      whole("9007199254740993"),
+      Right(Compare(
+        "rating",
+        Eq,
+        Value.Whole(9007199254740993L),
+      )),
+    )
+    assertEquals(
+      whole(">=9007199254740993"),
+      Right(Compare(
+        "rating",
+        Ge,
+        Value.Whole(9007199254740993L),
+      )),
     )
 
   test("absence and presence are written the same way for any kind"):

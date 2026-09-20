@@ -4,6 +4,7 @@ package server
 import com.alecdorrington.eunomia.model.{
   Comparison, Filter, Kind, ListQuery, ListReply, Order, Paged, Schema, Value,
 }
+import java.util.Locale
 import scala.concurrent.ExecutionContext
 import slick.ast.{BaseTypedType, Ordering as SqlOrdering}
 import slick.jdbc.JdbcProfile
@@ -87,6 +88,7 @@ final class SqlLists
     */
   final class Columns[E] private[SqlLists] (
     private[SqlLists] val byName: Map[String, Column[E]],
+    private[SqlLists] val kinds: Map[String, Kind],
   )
 
   /**
@@ -105,7 +107,7 @@ final class SqlLists
       byName.size == stored.size && kinds == schema.kinds,
       s"Columns $kinds do not store exactly the fields ${ schema.kinds }.",
     )
-    new Columns(byName)
+    new Columns(byName, kinds)
 
   /** A column of text, read as nullable so that any text column fits. */
   def text[E](name: String)(rep: E => Rep[Option[String]]): Column[E] =
@@ -163,14 +165,26 @@ final class SqlLists
     columns,
     query.limited(maxWindow),
   ).map(window =>
-    rows
-      .length
+    probe(rows)
       .result
-      .flatMap(size =>
-        if size <= wholeUpTo then everything(rows)
+      .flatMap(head =>
+        if head.sizeIs <= wholeUpTo then
+          DBIO.successful(ListReply.Whole(head.toList))
         else window.map(ListReply.Window(_)),
       ),
   )
+
+  /**
+    * The start of a list, one row longer than a list may be to be sent whole,
+    * which is all it takes to tell which of the two it is. A short list is then
+    * already loaded, and a long one has cost a bounded read rather than a count
+    * of every row its user may see.
+    *
+    * @param rows
+    *   The rows the list is drawn from, in their stored order.
+    */
+  private[server] def probe[E, U](rows: Query[E, U, Seq]): Query[E, U, Seq] =
+    rows.take(wholeUpTo + 1)
 
   /**
     * Runs a query in the database, whatever the length of the list, loading the
@@ -183,7 +197,7 @@ final class SqlLists
       query: ListQuery,
     )
     : Either[String, DBIO[Paged[U]]] = query
-    .checked(columns.byName.view.mapValues(_.kind).toMap)
+    .checked(columns.kinds)
     .map(checked =>
       fetch(
         rows.filter(holds(columns.byName, checked.filter)),
@@ -191,9 +205,6 @@ final class SqlLists
         checked,
       ),
     )
-
-  private def everything[E, U](rows: Query[E, U, Seq]): DBIO[ListReply[U]] =
-    rows.result.map(all => ListReply.Whole(all.toList))
 
   private def fetch[E, U]
     (
@@ -209,7 +220,7 @@ final class SqlLists
     window
       .result
       .zip(matching.length.result)
-      .map((items, total) => Paged(items.toList, total))
+      .map((items, total) => Paged(items.toList, total, query.page))
 
   private def holds[E]
     (
@@ -217,21 +228,16 @@ final class SqlLists
       filter: Filter,
     )
     (row: E)
-    : Rep[Boolean] = filter match
-    case Filter.Not(inner)  => !holds(columns, inner)(row)
-    case Filter.And(inners) => inners
-        .map(holds(columns, _)(row))
-        .reduceOption(_ && _)
-        .getOrElse(LiteralColumn(true))
-    case Filter.Or(inners) => inners
-        .map(holds(columns, _)(row))
-        .reduceOption(_ || _)
-        .getOrElse(LiteralColumn(false))
-    case Filter.Compare(field, comparison, value) =>
-      columns(field).compare(row, comparison, value)
-    case Filter.Contains(field, text) => columns(field).contains(row, text)
-    case Filter.OneOf(field, values)  => columns(field).oneOf(row, values)
-    case Filter.Missing(field)        => columns(field).missing(row)
+    : Rep[Boolean] = filter.fold[Rep[Boolean]](
+    not = !_,
+    all = _.reduceOption(_ && _).getOrElse(LiteralColumn(true)),
+    any = _.reduceOption(_ || _).getOrElse(LiteralColumn(false)),
+    compare = (field, comparison, value) =>
+      columns(field).compare(row, comparison, value),
+    contains = (field, text) => columns(field).contains(row, text),
+    oneOf = (field, values) => columns(field).oneOf(row, values),
+    missing = field => columns(field).missing(row),
+  )
 
   private def sorted[E, U]
     (
@@ -277,14 +283,14 @@ final class SqlLists
         compared(
           rep(row),
           comparison,
-          LiteralColumn(bound),
+          LiteralColumn(bound).bind,
         ).getOrElse(false),
       )
 
     override def oneOf(row: E, values: List[Value]): Rep[Boolean] =
       val bounds = values.flatMap(literal.lift)
       if bounds.isEmpty then LiteralColumn(false)
-      else rep(row).inSet(bounds).getOrElse(false)
+      else rep(row).inSetBind(bounds).getOrElse(false)
 
     override def missing(row: E): Rep[Boolean] = rep(row).isEmpty
 
@@ -326,7 +332,7 @@ final class SqlLists
     override def contains(row: E, text: String): Rep[Boolean] = rep(row)
       .toLowerCase
       .like(
-        LiteralColumn(SqlLists.pattern(text)),
+        LiteralColumn(SqlLists.pattern(text)).bind,
         SqlLists.escape,
       )
       .getOrElse(false)
@@ -336,10 +342,14 @@ object SqlLists:
   /** The character that makes the next in a `LIKE` pattern literal. */
   private val escape = '\\'
 
-  /** The `LIKE` pattern matching text that contains the given text, lowercased. */
+  /**
+    * The `LIKE` pattern matching text which contains the given text, folded to
+    * lower case by a fixed locale. The column it is matched against is folded
+    * by the database instead, whose own rules apply there.
+    */
   private def pattern(text: String): String =
     val literal = text
-      .toLowerCase
+      .toLowerCase(Locale.ROOT)
       .flatMap:
         case special @ ('%' | '_' | '\\') => s"$escape$special"
         case plain                        => plain.toString
