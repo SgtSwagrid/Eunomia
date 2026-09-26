@@ -133,6 +133,35 @@ class SchemaSuite extends FunSuite:
       Right(Some(Page(1, 2))),
     )
 
+  test("a window starting past the end is the last that holds anything"):
+    val window = (offset: Int) =>
+      schema
+        .run(
+          ListQuery(
+            order = List(name.ascending),
+            page = Some(Page(offset, 3)),
+          ),
+          books,
+        )
+        .map(paged => (paged.items.map(_.name), paged.page))
+    assertEquals(
+      window(3),
+      Right((List("beta"), Some(Page(3, 3)))),
+    )
+    assertEquals(
+      window(9),
+      Right((List("beta"), Some(Page(3, 3)))),
+    )
+    assertEquals(
+      schema
+        .run(
+          ListQuery(Filter.never, page = Some(Page(6, 3))),
+          books,
+        )
+        .map(_.page),
+      Right(Some(Page(0, 3))),
+    )
+
   test("an unknown field is refused"):
     assert(
       schema

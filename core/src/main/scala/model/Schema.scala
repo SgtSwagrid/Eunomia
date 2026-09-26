@@ -69,10 +69,11 @@ final class Schema[X](val fields: List[Field[X, ?]]):
     val matching = items
       .filter(matches(query.filter))
       .sorted(using ordering(query.order))
+    val page = query.page.map(_.within(matching.size))
     Paged(
-      query.page.fold(matching)(_.slice(matching)),
+      page.fold(matching)(_.slice(matching)),
       matching.size,
-      query.page,
+      page,
     )
 
   private def compare(key: Order, left: X, right: X): Int =

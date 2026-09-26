@@ -29,6 +29,21 @@ final case class Page(offset: Int, limit: Int) derives Codec.AsObject:
   /** Whether this window is well-formed, starting at or after the beginning. */
   def valid: Boolean = offset >= 0 && limit > 0
 
+  /**
+    * This window onto a list of the given length: itself, unless it starts past
+    * the list's end, in which case the last window of its size that holds
+    * anything, or the first when the list is empty. A list that shrinks while
+    * someone reads its last window, as a list reloaded while it changes may,
+    * then leaves them on the window that is last now, rather than on one with
+    * nothing in it.
+    *
+    * @param total
+    *   The number of items in the list.
+    */
+  def within(total: Int): Page =
+    if offset < total then this
+    else copy(offset = ((total - 1).max(0) / limit) * limit)
+
 object Page:
 
   /** The first window of the given size. */
@@ -46,8 +61,9 @@ object Page:
   * @param page
   *   The window these items are of, as it was answered, which need not be the
   *   one asked for: a server may send a smaller window than was requested, and
-  *   says here which it sent. `None` where the items are the whole of the
-  *   filtered list.
+  *   a window starting past the end of the list is answered with the last that
+  *   holds anything (see [[Page.within]]); either way, this says which was
+  *   sent. `None` where the items are the whole of the filtered list.
   */
 final case class Paged[X]
   (

@@ -214,13 +214,19 @@ final class SqlLists
     )
     : DBIO[Paged[U]] =
     val ordered = sorted(matching, columns, query.order)
-    val window  = query
-      .page
-      .fold(ordered)(page => ordered.drop(page.offset).take(page.limit))
-    window
+    // Counted first, as a window starting past the end is moved back to the
+    // last that holds anything, exactly as in memory: see `Page.within`.
+    matching
+      .length
       .result
-      .zip(matching.length.result)
-      .map((items, total) => Paged(items.toList, total, query.page))
+      .flatMap: total =>
+        val page = query.page.map(_.within(total))
+        page
+          .fold(ordered)(window =>
+            ordered.drop(window.offset).take(window.limit),
+          )
+          .result
+          .map(items => Paged(items.toList, total, page))
 
   private def holds[E]
     (
