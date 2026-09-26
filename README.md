@@ -91,6 +91,35 @@ Table(
 )
 ```
 
+## Keeping it live
+
+A list held in a signal (`ListSource.items`) is live already: it shows whatever the signal holds.
+A list served by an endpoint is read again whenever the stream you give it as `reloads` emits:
+
+```scala
+ListSource.endpoint[Book]("/api/books", reloads = booksChanged)
+```
+
+Eunomia never sees your writes, so it cannot tell by itself that a list has changed: something
+must say so, most often a socket over which your server tells each client what changed. A reload
+asks the server again for the query as it stands (the text in each header cell, the ordering, the
+window), and the rows shown stay on screen until the answer arrives, so a list reloaded however
+often never empties meanwhile. A short list sent whole is replaced whole and goes on being
+filtered in the browser; a long one reads the window being shown again.
+
+Where nothing can say when a list changes, `ListSource.reshown` reloads it whenever the page is
+looked at again (its tab shown after being hidden, or its window focused after another), which
+catches most of what changed while nobody was looking, at the cost of a request each time:
+
+```scala
+ListSource.endpoint[Book]("/api/books", reloads = ListSource.reshown)
+```
+
+A list that shrinks while someone reads its last window would leave them on a window with nothing
+in it. So a window starting past the end of a list is answered with the last window that holds
+anything (`Page.within`), in the browser and in the database alike, and the reply says which
+window it is, as it always does.
+
 ## Where a query runs
 
 Nowhere in the application, deliberately: the library decides, per request.

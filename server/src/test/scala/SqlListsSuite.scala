@@ -149,7 +149,11 @@ class SqlListsSuite extends FunSuite:
       List(name.ascending),
       Some(Page(1, 2)),
     ),
-    "a window past the end"         -> ListQuery(page = Some(Page(4, 10))),
+    "a window past the end"          -> ListQuery(page = Some(Page(4, 10))),
+    "a window starting past the end" -> ListQuery(
+      order = List(name.ascending),
+      page = Some(Page(40, 2)),
+    ),
     "a value of a convertible kind" -> ListQuery(Filter.Compare(
       "rating",
       Comparison.Eq,

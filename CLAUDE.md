@@ -19,6 +19,11 @@ in a database or over the wire, for full stack websites built on Tapir, Slick an
 - `server` (`com.alecdorrington.eunomia.server`) - `SqlLists` runs a query in SQL over the host's JDBC profile.
 - `client` (`com.alecdorrington.eunomia.client`) - `ListSource`, `ListView` and an unstyled `Table`.
   `ListSource` was named `Source` once and clashed with Laminar's `L.*`; don't reintroduce that.
+  An endpoint's list is reloaded by its `reloads` stream (the host says when, as nothing here sees writes),
+  keeping the rows on screen until the answer arrives; `ListSource.reshown` reloads when the page is looked
+  at again. A window starting past the end of a list is answered with the last that holds anything
+  (`Page.within`), by `Schema.run` and `SqlLists` alike, so that a list shrinking under its reader never
+  leaves them on an empty window; keep the two paths agreeing (the agreement tests in `SqlListsSuite`).
 
 See [README.md](README.md) for how a host wires it up.
 

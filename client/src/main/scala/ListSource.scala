@@ -7,6 +7,7 @@ import com.raquo.laminar.api.L.*
 import io.circe.{Decoder, Encoder}
 import io.circe.parser.decode
 import io.laminext.fetch.circe.*
+import org.scalajs.dom
 import scala.concurrent.ExecutionContext.Implicits.global
 import scala.scalajs.js.URIUtils.encodeURIComponent
 
@@ -56,11 +57,18 @@ object ListSource:
     * server, once it has stopped changing for a moment, and a reply to one
     * since superseded is discarded.
     *
+    * The list is loaded again whenever `reloads` emits, as when the host hears
+    * that it may have changed on the server: the query as it then stands is
+    * asked again, and the items shown stay on screen until the answer arrives,
+    * so that however often a list is reloaded, it never empties meanwhile. A
+    * host with no way to hear of changes can reload a list whenever the page is
+    * looked at again, with [[reshown]].
+    *
     * @param url
     *   The endpoint, without query parameters.
     *
-    * @param revision
-    *   Changes whenever the list may have changed on the server, reloading it.
+    * @param reloads
+    *   Emits whenever the list may have changed on the server, reloading it.
     *
     * @param debounceMs
     *   How long a query must stay unchanged before it is sent, in milliseconds.
@@ -68,7 +76,7 @@ object ListSource:
   def endpoint[X : {Encoder, Decoder}]
     (
       url: String,
-      revision: Signal[Any] = Val(()),
+      reloads: EventStream[Any] = EventStream.empty,
       debounceMs: Int = 250,
     )
     : ListSource[X] = new ListSource[X]:
@@ -76,12 +84,35 @@ object ListSource:
       (
         schema: Schema[X],
         query: Signal[ListQuery],
-      ) = revision.flatMapSwitch(_ => loaded(url, debounceMs, schema, query))
+      ) = EventStream
+      .merge(
+        EventStream.fromValue(()),
+        reloads.mapToUnit,
+      )
+      .flatMapSwitch(_ => loaded(url, debounceMs, schema, query))
+      .startWith(Right(Paged.empty[X]))
 
   /**
-    * One load of an endpoint's list, from the first request on. The first
-    * request carries the current query, so that a long list's first window is
-    * the one asked for and is shown rather than fetched again.
+    * Emits whenever the page is looked at again: shown after being hidden, as
+    * when its tab is returned to, or focused after another window was. For
+    * reloading an [[endpoint]]'s list where nothing tells the host when it has
+    * changed, as it then may have while nobody was looking.
+    */
+  def reshown: EventStream[Unit] = EventStream
+    .merge(
+      documentEvents(_.onVisibilityChange)
+        .filter(_ => !dom.document.hidden)
+        .mapToUnit,
+      windowEvents(_.onFocus).mapToUnit,
+    )
+    // Returning to a tab both shows and focuses it: one reload is enough.
+    .debounce(ListSource.together)
+
+  /**
+    * One load of an endpoint's list, from the first request on, which answers
+    * nothing until that request has. The first request carries the current
+    * query, so that a long list's first window is the one asked for and is
+    * shown rather than fetched again.
     */
   private def loaded[X : {Encoder, Decoder}]
     (
@@ -90,7 +121,7 @@ object ListSource:
       schema: Schema[X],
       query: Signal[ListQuery],
     )
-    : Signal[Either[String, Paged[X]]] = EventStream
+    : EventStream[Either[String, Paged[X]]] = EventStream
     .fromValue(())
     .sample(query)
     .flatMapSwitch(first =>
@@ -105,7 +136,6 @@ object ListSource:
           )
         case Left(problem) => Val[Either[String, Paged[X]]](Left(problem)),
     )
-    .startWith(Right(Paged.empty[X]))
 
   /**
     * Answers each further query on the server, as a long list must be, starting
@@ -138,6 +168,12 @@ object ListSource:
       else decode[ListReply[X]](response.data).left.map(_.getMessage),
     )
     .recover { case error => Some(Left(error.getMessage)) }
+
+  /**
+    * How long apart two signs that the page is looked at again may be to count
+    * as one, in milliseconds.
+    */
+  private val together = 100
 
   /** The address of one query against an endpoint. */
   private def address(url: String, query: ListQuery): String =
