@@ -50,11 +50,9 @@ class ListApiSuite extends FunSuite:
     )
 
   test("a whole reply is queried where it is received"):
-    val schema = Schema(Field.of[Int]("n", identity[Int]))
-    val query  = ListQuery(
-      Field.of[Int]("n", identity[Int]) > 1,
-      page = Some(Page(0, 1)),
-    )
+    val n      = Field.of[Int]("n", identity[Int])
+    val schema = Schema(n)
+    val query  = ListQuery(n > 1, page = Some(Page(0, 1)))
     assertEquals(
       ListReply.Whole(List(1, 2, 3)).answer(schema, query),
       Right(Paged(List(2), 2, Some(Page(0, 1)))),

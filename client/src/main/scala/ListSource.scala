@@ -41,12 +41,8 @@ object ListSource:
     * @param all
     *   Every item of the list, in stored order.
     */
-  def items[X](all: Signal[List[X]]): ListSource[X] = new ListSource[X]:
-    override def load
-      (
-        schema: Schema[X],
-        query: Signal[ListQuery],
-      ) = query.combineWith(all).mapN(schema.run)
+  def items[X](all: Signal[List[X]]): ListSource[X] =
+    (schema, query) => query.combineWith(all).mapN(schema.run)
 
   /**
     * A list served by an endpoint taking
@@ -55,7 +51,9 @@ object ListSource:
     * whether the list is short: if it is, it arrives whole, and every query
     * after runs here without another request; if not, each query is sent to the
     * server, once it has stopped changing for a moment, and a reply to one
-    * since superseded is discarded.
+    * since superseded is discarded. A query changed while the first request was
+    * on its way is sent once that request is answered, and after a request that
+    * fails, the next query is sent as after any other.
     *
     * The list is loaded again whenever `reloads` emits, as when the host hears
     * that it may have changed on the server: the query as it then stands is
@@ -79,17 +77,33 @@ object ListSource:
       reloads: EventStream[Any] = EventStream.empty,
       debounceMs: Int = 250,
     )
-    : ListSource[X] = new ListSource[X]:
-    override def load
-      (
-        schema: Schema[X],
-        query: Signal[ListQuery],
-      ) = EventStream
+    : ListSource[X] = served[X](request[X](url, _), reloads, debounceMs)
+
+  /**
+    * A list served as [[endpoint]] describes, by whatever answers `send`.
+    *
+    * @param send
+    *   Sends one query, replying with the list or why there is none.
+    *
+    * @param reloads
+    *   Emits whenever the list may have changed on the server, reloading it.
+    *
+    * @param debounceMs
+    *   How long a query must stay unchanged before it is sent, in milliseconds.
+    */
+  private[client] def served[X]
+    (
+      send: ListQuery => EventStream[Either[String, ListReply[X]]],
+      reloads: EventStream[Any],
+      debounceMs: Int,
+    )
+    : ListSource[X] = (schema, query) =>
+    EventStream
       .merge(
         EventStream.fromValue(()),
         reloads.mapToUnit,
       )
-      .flatMapSwitch(_ => loaded(url, debounceMs, schema, query))
+      .flatMapSwitch(_ => loaded(send, debounceMs, schema, query))
       .startWith(Right(Paged.empty[X]))
 
   /**
@@ -106,17 +120,17 @@ object ListSource:
       windowEvents(_.onFocus).mapToUnit,
     )
     // Returning to a tab both shows and focuses it: one reload is enough.
-    .debounce(ListSource.together)
+    .debounce(together)
 
   /**
-    * One load of an endpoint's list, from the first request on, which answers
+    * One load of a served list, from the first request on, which answers
     * nothing until that request has. The first request carries the current
     * query, so that a long list's first window is the one asked for and is
     * shown rather than fetched again.
     */
-  private def loaded[X : {Encoder, Decoder}]
+  private def loaded[X]
     (
-      url: String,
+      send: ListQuery => EventStream[Either[String, ListReply[X]]],
       debounceMs: Int,
       schema: Schema[X],
       query: Signal[ListQuery],
@@ -125,37 +139,48 @@ object ListSource:
     .fromValue(())
     .sample(query)
     .flatMapSwitch(first =>
-      request[X](url, first).flatMapSwitch:
+      send(first).flatMapSwitch:
         case Right(ListReply.Whole(all)) => query.map(schema.run(_, all))
-        case Right(window @ ListReply.Window(_)) => remote(
-            url,
+        case reply                       => remote(
+            send,
             debounceMs,
             schema,
             query,
-            window.answer(schema, first),
-          )
-        case Left(problem) => Val[Either[String, Paged[X]]](Left(problem)),
+            first,
+            reply.flatMap(_.answer(schema, first)),
+          ),
     )
 
   /**
     * Answers each further query on the server, as a long list must be, starting
-    * from the window the first request already brought.
+    * from the answer to the first request: its window, or why there is none.
+    * The query as it stands is sent at once if it changed while that request
+    * was on its way, and every later one once it has stopped changing.
+    *
+    * @param asked
+    *   The query the first request carried.
+    *
+    * @param answer
+    *   The answer to the first request.
     */
-  private def remote[X : {Encoder, Decoder}]
+  private def remote[X]
     (
-      url: String,
+      send: ListQuery => EventStream[Either[String, ListReply[X]]],
       debounceMs: Int,
       schema: Schema[X],
       query: Signal[ListQuery],
-      first: Either[String, Paged[X]],
+      asked: ListQuery,
+      answer: Either[String, Paged[X]],
     )
-    : Signal[Either[String, Paged[X]]] = query
-    .changes
-    .debounce(debounceMs)
+    : Signal[Either[String, Paged[X]]] = EventStream
+    .merge(
+      EventStream.fromValue(()).sample(query).filter(_ != asked),
+      query.changes.debounce(debounceMs),
+    )
     .flatMapSwitch(current =>
-      request[X](url, current).map(_.flatMap(_.answer(schema, current))),
+      send(current).map(_.flatMap(_.answer(schema, current))),
     )
-    .startWith(first)
+    .startWith(answer)
 
   /** Sends one query, turning any refusal into its reason. */
   private def request[X : {Encoder, Decoder}]

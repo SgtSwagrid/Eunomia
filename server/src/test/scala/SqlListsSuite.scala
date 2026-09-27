@@ -99,15 +99,19 @@ class SqlListsSuite extends FunSuite:
 
   private val schema = Schema(name, rating, score, inPrint)
 
+  /** The columns storing the fields of [[schema]], for the given lists. */
+  private def columnsOf(lists: SqlLists): lists.Columns[Rows] =
+    lists.columns(schema)(
+      lists.text[Rows]("name")(_.name.?),
+      lists.whole[Rows]("rating")(_.rating),
+      lists.real[Rows]("score")(_.score.?),
+      lists.flag[Rows]("inPrint")(_.inPrint.?),
+    )
+
   /** Lists that always run queries in the database, however short. */
   private val lists = SqlLists(H2Profile, wholeUpTo = 0)
 
-  private val columns = lists.columns(schema)(
-    lists.text[Rows]("name")(_.name.?),
-    lists.whole[Rows]("rating")(_.rating),
-    lists.real[Rows]("score")(_.score.?),
-    lists.flag[Rows]("inPrint")(_.inPrint.?),
-  )
+  private val columns = columnsOf(lists)
 
   private val db = Database.forURL(
     "jdbc:h2:mem:lists;DB_CLOSE_DELAY=-1",
@@ -124,6 +128,19 @@ class SqlListsSuite extends FunSuite:
   )
 
   override def afterAll(): Unit = db.close()
+
+  /** What the given lists reply to a query over every row, in stored order. */
+  private def answered
+    (lists: SqlLists, query: ListQuery)
+    : Future[ListReply[Row]] =
+    val action = lists
+      .answer(
+        rows.sortBy(_.id),
+        columnsOf(lists),
+        query,
+      )
+      .fold(fail(_), identity)
+    db.run(action)
 
   private val queries: List[(String, ListQuery)] = List(
     "text, ignoring case"       -> ListQuery(name.contains("BOOK")),
@@ -219,74 +236,46 @@ class SqlListsSuite extends FunSuite:
     ))
 
   test("a short list is sent whole, in stored order, whatever was asked"):
-    val short  = SqlLists(H2Profile, wholeUpTo = data.size)
-    val stored = short.columns(schema)(
-      short.text[Rows]("name")(_.name.?),
-      short.whole[Rows]("rating")(_.rating),
-      short.real[Rows]("score")(_.score.?),
-      short.flag[Rows]("inPrint")(_.inPrint.?),
-    )
-    val query  = ListQuery(rating > 50L, page = Some(Page(0, 1)))
-    val action = short
-      .answer(rows.sortBy(_.id), stored, query)
-      .fold(fail(_), identity)
-    db.run(action)
-      .map: reply =>
-        assertEquals(reply, ListReply.Whole(data))
-        assertEquals(
-          reply.answer(schema, query),
-          schema.run(query, data),
-        )
+    val query = ListQuery(rating > 50L, page = Some(Page(0, 1)))
+    answered(
+      SqlLists(H2Profile, wholeUpTo = data.size),
+      query,
+    ).map: reply =>
+      assertEquals(reply, ListReply.Whole(data))
+      assertEquals(
+        reply.answer(schema, query),
+        schema.run(query, data),
+      )
 
   test("a long list is sent only the window asked for, capped"):
-    val long   = SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2)
-    val stored = long.columns(schema)(
-      long.text[Rows]("name")(_.name.?),
-      long.whole[Rows]("rating")(_.rating),
-      long.real[Rows]("score")(_.score.?),
-      long.flag[Rows]("inPrint")(_.inPrint.?),
+    answered(
+      SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2),
+      ListQuery(),
+    ).map(reply =>
+      assertEquals(
+        reply,
+        ListReply.Window(Paged(
+          data.take(2),
+          data.size,
+          Some(Page(0, 2)),
+        )),
+      ),
     )
-    val action = long
-      .answer(rows.sortBy(_.id), stored, ListQuery())
-      .fold(fail(_), identity)
-    db.run(action)
-      .map(reply =>
-        assertEquals(
-          reply,
-          ListReply.Window(Paged(
-            data.take(2),
-            data.size,
-            Some(Page(0, 2)),
-          )),
-        ),
-      )
 
   test("a window narrowed by the server says which window it is"):
-    val long   = SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2)
-    val stored = long.columns(schema)(
-      long.text[Rows]("name")(_.name.?),
-      long.whole[Rows]("rating")(_.rating),
-      long.real[Rows]("score")(_.score.?),
-      long.flag[Rows]("inPrint")(_.inPrint.?),
+    answered(
+      SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2),
+      ListQuery(page = Some(Page(1, 500))),
+    ).map(reply =>
+      assertEquals(
+        reply,
+        ListReply.Window(Paged(
+          data.slice(1, 3),
+          data.size,
+          Some(Page(1, 2)),
+        )),
+      ),
     )
-    val action = long
-      .answer(
-        rows.sortBy(_.id),
-        stored,
-        ListQuery(page = Some(Page(1, 500))),
-      )
-      .fold(fail(_), identity)
-    db.run(action)
-      .map(reply =>
-        assertEquals(
-          reply,
-          ListReply.Window(Paged(
-            data.slice(1, 3),
-            data.size,
-            Some(Page(1, 2)),
-          )),
-        ),
-      )
 
   test("the length of a list is decided from a bounded read"):
     val sql = SqlLists(H2Profile, wholeUpTo = 200)
@@ -297,21 +286,13 @@ class SqlListsSuite extends FunSuite:
     assert(sql.contains("limit 201"), sql)
 
   test("a list one row too long to be sent whole is paged instead"):
-    val long   = SqlLists(H2Profile, wholeUpTo = data.size - 1)
-    val stored = long.columns(schema)(
-      long.text[Rows]("name")(_.name.?),
-      long.whole[Rows]("rating")(_.rating),
-      long.real[Rows]("score")(_.score.?),
-      long.flag[Rows]("inPrint")(_.inPrint.?),
-    )
-    val action = long
-      .answer(rows.sortBy(_.id), stored, ListQuery())
-      .fold(fail(_), identity)
-    db.run(action)
-      .map(assertEquals(
-        _,
-        ListReply.Window(Paged(data, data.size, Some(Page(0, 100)))),
-      ))
+    answered(
+      SqlLists(H2Profile, wholeUpTo = data.size - 1),
+      ListQuery(),
+    ).map(assertEquals(
+      _,
+      ListReply.Window(Paged(data, data.size, Some(Page(0, 100)))),
+    ))
 
   test("a list drawn from a left join is queried by the joined columns"):
     val name   = Field.of[(Row, Option[Note])]("name", _._1.name)

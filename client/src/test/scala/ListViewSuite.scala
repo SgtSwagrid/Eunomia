@@ -32,11 +32,15 @@ class ListViewSuite extends FunSuite:
   private def now[A](signal: Signal[A]): A = signal.observe.now()
 
   private def view
-    (narrowing: Signal[Filter] = Val(Filter.always))
+    (
+      narrowing: Signal[Filter] = Val(Filter.always),
+      initial: ListQuery = ListQuery(),
+    )
     : ListView[Book] = ListView(
     schema,
     ListSource.items(Val(books)),
     narrowing,
+    initial,
   )
 
   private def names(list: ListView[Book]): List[String] =
@@ -103,11 +107,7 @@ class ListViewSuite extends FunSuite:
     assertEquals(names(list), books.map(_.name))
 
   test("the total counts every match, not only those shown"):
-    val list = ListView(
-      schema,
-      ListSource.items(Val(books)),
-      initial = ListQuery(page = Some(model.Page(0, 2))),
-    )
+    val list = view(initial = ListQuery(page = Some(model.Page(0, 2))))
     assertEquals(
       names(list),
       List("Alpha", "beta draft"),

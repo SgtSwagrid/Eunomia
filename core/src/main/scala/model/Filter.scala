@@ -185,9 +185,8 @@ object Filter:
   given Decoder[Filter] = Decoder.instance(cursor =>
     shapes
       .find((key, _) => cursor.downField(key).succeeded)
-      .fold[Decoder.Result[Filter]](Left(
-        DecodingFailure("Unrecognised filter.", cursor.history),
-      ))((_, shape) => shape(cursor)),
+      .map((_, shape) => shape(cursor))
+      .getOrElse(Left(DecodingFailure("Unrecognised filter.", cursor.history))),
   )
 
   /** The decoder for each shape of filter, by the key that identifies it. */

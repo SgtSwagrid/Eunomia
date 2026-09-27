@@ -45,9 +45,7 @@ object ListApi:
   val input: EndpointInput[ListQuery] = filter
     .and(sort)
     .and(page)
-    .map((narrowing, keys, window) => ListQuery(narrowing, keys, window))(
-      query => (query.filter, query.order, query.page),
-    )
+    .map(ListQuery(_, _, _))(query => (query.filter, query.order, query.page))
 
   /** A reply to a list query: the whole list, or the window asked for. */
   def reply[X : {Encoder, Decoder, JsonSchema}]
