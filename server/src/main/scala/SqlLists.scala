@@ -255,10 +255,12 @@ final class SqlLists
     if keys.isEmpty then rows
     else
       rows.sortBy(row =>
-        new Ordered(
+        Ordered(
           keys
-            .map(key => columns(key.field).ordered(row, key.descending).columns)
-            .reduce(_ ++ _),
+            .toVector
+            .flatMap(key =>
+              columns(key.field).ordered(row, key.descending).columns,
+            ),
         ),
       )(using identity)
 

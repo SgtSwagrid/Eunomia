@@ -33,7 +33,7 @@ final class Schema[X](val fields: List[Field[X, ?]]):
     */
   def run(query: ListQuery, items: List[X]): Either[String, Paged[X]] = query
     .checked(kinds)
-    .map(checked => evaluate(checked, items))
+    .map(evaluate(_, items))
 
   /**
     * Whether one item satisfies a filter. Unchecked, so a comparison with an

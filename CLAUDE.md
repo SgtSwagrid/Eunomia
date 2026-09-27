@@ -21,9 +21,13 @@ in a database or over the wire, for full stack websites built on Tapir, Slick an
   `ListSource` was named `Source` once and clashed with Laminar's `L.*`; don't reintroduce that.
   An endpoint's list is reloaded by its `reloads` stream (the host says when, as nothing here sees writes),
   keeping the rows on screen until the answer arrives; `ListSource.reshown` reloads when the page is looked
-  at again. A window starting past the end of a list is answered with the last that holds anything
-  (`Page.within`), by `Schema.run` and `SqlLists` alike, so that a list shrinking under its reader never
-  leaves them on an empty window; keep the two paths agreeing (the agreement tests in `SqlListsSuite`).
+  at again. The first request of an endpoint's load isn't abandoned when the query changes: once it
+  answers, `remote` catches up with the query as it stands, and an error gives way to the next query.
+  Don't put a query-following switch above the first request instead: a whole-list reply can't stop it
+  without feedback state, so a short list would send a request per query. A window starting past the end
+  of a list is answered with the last that holds anything (`Page.within`), by `Schema.run` and `SqlLists`
+  alike, so that a list shrinking under its reader never leaves them on an empty window; keep the two
+  paths agreeing (the agreement tests in `SqlListsSuite`).
 
 See [README.md](README.md) for how a host wires it up.
 

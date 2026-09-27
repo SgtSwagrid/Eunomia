@@ -28,30 +28,20 @@ class FilterSuite extends FunSuite:
       every,
     )
 
+  /** The number of leaves a fold reaches in a filter. */
+  private def leaves(filter: Filter): Int = filter.fold[Int](
+    not = identity,
+    all = _.sum,
+    any = _.sum,
+    compare = (_, _, _) => 1,
+    contains = (_, _) => 1,
+    oneOf = (_, _) => 1,
+    missing = _ => 1,
+  )
+
   test("a fold reaches every leaf once"):
-    assertEquals(
-      every.fold[Int](
-        not = identity,
-        all = _.sum,
-        any = _.sum,
-        compare = (_, _, _) => 1,
-        contains = (_, _) => 1,
-        oneOf = (_, _) => 1,
-        missing = _ => 1,
-      ),
-      5,
-    )
+    assertEquals(leaves(every), 5)
 
   test("an empty conjunction and disjunction each reach no leaf"):
-    val count = (filter: Filter) =>
-      filter.fold[Int](
-        not = identity,
-        all = _.sum,
-        any = _.sum,
-        compare = (_, _, _) => 1,
-        contains = (_, _) => 1,
-        oneOf = (_, _) => 1,
-        missing = _ => 1,
-      )
-    assertEquals(count(Filter.always), 0)
-    assertEquals(count(Filter.never), 0)
+    assertEquals(leaves(Filter.always), 0)
+    assertEquals(leaves(Filter.never), 0)

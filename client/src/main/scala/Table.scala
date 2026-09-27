@@ -182,24 +182,39 @@ object Table:
   private def pager[X](view: ListView[X]): HtmlElement = div(
     cls := "list-pager",
     visibleWhen(view.page.map(_.isDefined)),
-    button(
+    turner(
+      view,
       "‹",
-      cls := "list-page",
-      disabled <-- view.page.map(_.forall(_.offset == 0)),
-      onClick.compose(_.sample(view.page)) -->
-        (_.foreach(window => view.showPage(window.previous))),
-    ),
+      view.page.map(_.forall(_.offset == 0)),
+    )(_.previous),
     span(
       cls := "list-range",
       text <-- view.page.combineWith(view.total).mapN(range),
     ),
-    button(
+    turner(
+      view,
       "›",
-      cls := "list-page",
-      disabled <-- view.page.combineWith(view.total).mapN(atEnd),
-      onClick.compose(_.sample(view.page)) -->
-        (_.foreach(window => view.showPage(window.next))),
-    ),
+      view.page.combineWith(view.total).mapN(atEnd),
+    )(_.next),
+  )
+
+  /**
+    * A pager's button, which shows the window `turn` takes the shown one to,
+    * disabled while `blocked` holds.
+    */
+  private def turner[X]
+    (
+      view: ListView[X],
+      arrow: String,
+      blocked: Signal[Boolean],
+    )
+    (turn: Page => Page)
+    : HtmlElement = button(
+    arrow,
+    cls := "list-page",
+    disabled <-- blocked,
+    onClick.compose(_.sample(view.page)) -->
+      (_.foreach(window => view.showPage(turn(window)))),
   )
 
   /** The field a filter may be typed for in this column's header cell, if any. */
@@ -222,7 +237,7 @@ object Table:
       s"${ window.offset + 1 }–${ (window.offset + window.limit).min(
           total,
         ) } of $total"
-    case _ => s"$total"
+    case _ => total.toString
 
   private def atEnd(page: Option[Page], total: Int): Boolean =
     page.forall(window => window.offset + window.limit >= total)

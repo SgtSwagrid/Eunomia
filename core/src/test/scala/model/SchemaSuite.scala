@@ -163,22 +163,8 @@ class SchemaSuite extends FunSuite:
     )
 
   test("an unknown field is refused"):
-    assert(
-      schema
-        .run(
-          ListQuery(Filter.Missing("author")),
-          books,
-        )
-        .isLeft,
-    )
-    assert(
-      schema
-        .run(
-          ListQuery(order = List(Order("author"))),
-          books,
-        )
-        .isLeft,
-    )
+    assert(names(ListQuery(Filter.Missing("author"))).isLeft)
+    assert(names(ListQuery(order = List(Order("author")))).isLeft)
 
   test("a value is converted to the kind of its field, when it can be"):
     val whole = Filter.Compare(
