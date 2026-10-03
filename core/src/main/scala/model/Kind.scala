@@ -6,16 +6,15 @@ package model
   * filtered.
   *
   * @param noun
-  *   How a value of this kind is described to a person, e.g. in a complaint
-  *   that some text is not one.
+  *   The name of the kind as shown to a person, e.g. in an error message.
   */
 enum Kind(val noun: String):
 
   /** Text, filtered by substring as well as compared lexicographically. */
   case Text extends Kind("text")
 
-  /** Whole numbers. */
-  case Whole extends Kind("whole number")
+  /** Integers. */
+  case Integer extends Kind("whole number")
 
   /** Real numbers. */
   case Real extends Kind("number")

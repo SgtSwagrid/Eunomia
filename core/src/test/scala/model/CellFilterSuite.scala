@@ -1,16 +1,16 @@
 package com.alecdorrington.eunomia
 package model
 
-import com.alecdorrington.eunomia.model.Comparison.*
 import com.alecdorrington.eunomia.model.Filter.*
+import com.alecdorrington.eunomia.model.Operator.*
 import munit.FunSuite
 
 class CellFilterSuite extends FunSuite:
 
   private def text(input: String) = CellFilter.parse("name", Kind.Text, input)
 
-  private def whole(input: String) =
-    CellFilter.parse("rating", Kind.Whole, input)
+  private def integer(input: String) =
+    CellFilter.parse("rating", Kind.Integer, input)
   private def real(input: String) = CellFilter.parse("score", Kind.Real, input)
 
   private def flag(input: String) =
@@ -18,7 +18,7 @@ class CellFilterSuite extends FunSuite:
 
   test("a blank cell matches everything"):
     assertEquals(text(""), Right(Filter.always))
-    assertEquals(whole("  | "), Right(Filter.always))
+    assertEquals(integer("  | "), Right(Filter.always))
 
   test("text is sought by substring, spaces included"):
     assertEquals(
@@ -28,16 +28,16 @@ class CellFilterSuite extends FunSuite:
 
   test("text can be excluded, or matched exactly"):
     assertEquals(
-      text("!draft"),
-      Right(Not(Contains("name", "draft"))),
+      text("!edition"),
+      Right(Not(Contains("name", "edition"))),
     )
     assertEquals(
       text("=Alpha"),
-      Right(Compare("name", Eq, Value.Text("Alpha"))),
+      Right(Compare("name", Equal, Value.Text("Alpha"))),
     )
     assertEquals(
       text("!=Alpha"),
-      Right(Compare("name", Ne, Value.Text("Alpha"))),
+      Right(Compare("name", Unequal, Value.Text("Alpha"))),
     )
 
   test("alternatives match wherever any does"):
@@ -51,78 +51,78 @@ class CellFilterSuite extends FunSuite:
 
   test("a bare number is matched exactly"):
     assertEquals(
-      whole("50"),
-      Right(Compare("rating", Eq, Value.Whole(50))),
+      integer("50"),
+      Right(Compare("rating", Equal, Value.Integer(50))),
     )
     assertEquals(
-      whole("-5"),
-      Right(Compare("rating", Eq, Value.Whole(-5))),
+      integer("-5"),
+      Right(Compare("rating", Equal, Value.Integer(-5))),
     )
 
-  test("each comparison is read by its longest operator"):
-    Comparison
+  test("each operator is read by its longest symbol"):
+    Operator
       .values
-      .foreach(comparison =>
+      .foreach(operator =>
         assertEquals(
-          whole(s"${ comparison.symbol }50"),
-          Right(Compare("rating", comparison, Value.Whole(50))),
+          integer(s"${ operator.symbol }50"),
+          Right(Compare("rating", operator, Value.Integer(50))),
         ),
       )
 
   test("conditions separated by spaces must all hold"):
     assertEquals(
-      whole(">=50 <80"),
+      integer(">=50 <80"),
       Right(And(List(
-        Compare("rating", Ge, Value.Whole(50)),
-        Compare("rating", Lt, Value.Whole(80)),
+        Compare("rating", AtLeast, Value.Integer(50)),
+        Compare("rating", Less, Value.Integer(80)),
       ))),
     )
 
   test("a range is inclusive at both ends"):
     assertEquals(
-      whole("50..80"),
+      integer("50..80"),
       Right(And(List(
-        Compare("rating", Ge, Value.Whole(50)),
-        Compare("rating", Le, Value.Whole(80)),
+        Compare("rating", AtLeast, Value.Integer(50)),
+        Compare("rating", AtMost, Value.Integer(80)),
       ))),
     )
 
   test("a range whose bounds are the wrong way round is refused"):
-    assert(whole("80..50").isLeft)
+    assert(integer("80..50").isLeft)
     assert(real("1...2").isLeft)
 
   test("a range missing a bound is refused"):
-    assert(whole("..80").isLeft)
-    assert(whole("50 .. 80").isLeft)
+    assert(integer("..80").isLeft)
+    assert(integer("50 .. 80").isLeft)
 
   test("a number must be of the field's kind"):
-    assert(whole("50.5").isLeft)
-    assert(whole("abc").isLeft)
+    assert(integer("50.5").isLeft)
+    assert(integer("abc").isLeft)
     assertEquals(
       real("50.5"),
-      Right(Compare("score", Eq, Value.Real(50.5))),
+      Right(Compare("score", Equal, Value.Real(50.5))),
     )
 
-  test("a whole number too large for a double is read exactly"):
+  test("an integer too large for a double is read exactly"):
     assertEquals(
-      whole("9007199254740993"),
+      integer("9007199254740993"),
       Right(Compare(
         "rating",
-        Eq,
-        Value.Whole(9007199254740993L),
+        Equal,
+        Value.Integer(9007199254740993L),
       )),
     )
     assertEquals(
-      whole(">=9007199254740993"),
+      integer(">=9007199254740993"),
       Right(Compare(
         "rating",
-        Ge,
-        Value.Whole(9007199254740993L),
+        AtLeast,
+        Value.Integer(9007199254740993L),
       )),
     )
 
   test("absence and presence are written the same way for any kind"):
-    assertEquals(whole("?"), Right(Missing("rating")))
+    assertEquals(integer("?"), Right(Missing("rating")))
     assertEquals(
       text("!?"),
       Right(Not(Missing("name"))),
@@ -131,10 +131,10 @@ class CellFilterSuite extends FunSuite:
   test("truth values are read in several spellings"):
     assertEquals(
       flag("Yes"),
-      Right(Compare("inPrint", Eq, Value.Flag(true))),
+      Right(Compare("inPrint", Equal, Value.Flag(true))),
     )
     assertEquals(
       flag("0"),
-      Right(Compare("inPrint", Eq, Value.Flag(false))),
+      Right(Compare("inPrint", Equal, Value.Flag(false))),
     )
     assert(flag("maybe").isLeft)
