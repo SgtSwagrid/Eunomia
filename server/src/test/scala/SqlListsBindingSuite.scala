@@ -1,24 +1,18 @@
 package com.alecdorrington.eunomia
 package server
 
-import com.alecdorrington.eunomia.model.{Comparison, Value}
+import com.alecdorrington.eunomia.model.{Operator, Value}
 import munit.FunSuite
 import slick.jdbc.H2Profile
 import slick.jdbc.H2Profile.api.*
 
-/**
-  * Checks that the values a list is filtered by are sent as parameters rather
-  * than written into the statement, so that a database sees one statement per
-  * shape of filter instead of one per value typed.
-  */
-class SqlBindingSuite extends FunSuite:
+class SqlListsBindingSuite extends FunSuite:
 
   private val lists  = SqlLists(H2Profile)
   private val rows   = TableQuery[Rows]
   private val name   = lists.text[Rows]("name")(_.name.?)
-  private val rating = lists.whole[Rows]("rating")(_.rating)
+  private val rating = lists.integer[Rows]("rating")(_.rating)
 
-  /** The `WHERE` clause of a list narrowed by one condition. */
   private def where(condition: Rows => Rep[Boolean]): String =
     val sql = rows.filter(condition).result.statements.head
     sql.substring(sql.indexOf("where"))
@@ -35,7 +29,7 @@ class SqlBindingSuite extends FunSuite:
 
   test("a compared value is a parameter"):
     assertBound(
-      where(rating.compare(_, Comparison.Ge, Value.Whole(50L))),
+      where(rating.compare(_, Operator.AtLeast, Value.Integer(50L))),
       "50",
     )
 
@@ -43,7 +37,7 @@ class SqlBindingSuite extends FunSuite:
     assertBound(
       where(rating.oneOf(
         _,
-        List(Value.Whole(45L), Value.Whole(90L)),
+        List(Value.Integer(45L), Value.Integer(90L)),
       )),
       "45",
     )

@@ -5,7 +5,7 @@ import cats.syntax.all.*
 import com.alecdorrington.eunomia.model.Filter.*
 
 /**
-  * What to show of a list: which items, in what order, and which window of
+  * A query on a list: which items to show, in what order, and which page of
   * them.
   *
   * @param filter
@@ -16,7 +16,7 @@ import com.alecdorrington.eunomia.model.Filter.*
   *   items keep the order they were stored in.
   *
   * @param page
-  *   The window of items shown, or `None` for all of them.
+  *   The page of items shown, or `None` for all of them.
   */
 final case class ListQuery
   (
@@ -25,34 +25,65 @@ final case class ListQuery
     page: Option[Page] = None,
   ):
 
-  /** This query, further narrowed by the given filter. */
-  def where(narrower: Filter): ListQuery = copy(filter = filter && narrower)
-
-  /** This query, ordered by the given keys instead. */
-  def sortedBy(keys: Order*): ListQuery = copy(order = keys.toList)
-
-  /** This query, showing only the given window. */
-  def paged(window: Page): ListQuery = copy(page = Some(window))
+  /**
+    * Narrows this query by another filter.
+    *
+    * @param narrower
+    *   The filter every item shown must also satisfy.
+    *
+    * @return
+    *   A query showing only the items that satisfy both filters.
+    */
+  def narrowed(narrower: Filter): ListQuery = copy(filter = filter && narrower)
 
   /**
-    * This query, showing no more than the given number of items: a request for
-    * more is reduced, and a request for all of them gets the first window.
+    * Reorders this query.
+    *
+    * @param keys
+    *   The keys to order by, most significant first, replacing the current
+    *   ones.
+    *
+    * @return
+    *   A query ordered by `keys`.
     */
-  def limited(max: Int): ListQuery =
+  def orderedBy(keys: Order*): ListQuery = copy(order = keys.toList)
+
+  /**
+    * Restricts this query to one page.
+    *
+    * @param page
+    *   The page to show.
+    *
+    * @return
+    *   A query showing only `page`.
+    */
+  def paged(page: Page): ListQuery = copy(page = Some(page))
+
+  /**
+    * Caps the number of items this query shows. A larger page is reduced, and a
+    * query for every item gets the first page.
+    *
+    * @param max
+    *   The greatest number of items to show.
+    *
+    * @return
+    *   A query showing at most `max` items.
+    */
+  def capped(max: Int): ListQuery =
     copy(page = Some(page.fold(Page.first(max))(_.capped(max))))
 
   /**
-    * This query, checked against the fields of the list it is run on: every
-    * field it names exists, every value it compares against can be read as the
-    * kind of that field (and is converted to it, so `50.0` compares as `50`
-    * with a whole-number field), text is only sought in text fields, and its
-    * window is well-formed.
+    * Checks this query against the fields of a list: every field named exists,
+    * every value compared with can be read as its field's kind (and is
+    * converted to it, so `50.0` compares as `50` with an integer field), text
+    * is only sought in text fields, and the page is well-formed.
     *
     * @param kinds
     *   The kind of each field of the list, by name.
     *
     * @return
-    *   A checked query, or why it cannot be run.
+    *   Either a message saying why the query cannot be run, or the checked
+    *   query.
     */
   def checked(kinds: Map[String, Kind]): Either[String, ListQuery] = (
     ListQuery.check(filter, kinds),
@@ -66,17 +97,16 @@ final case class ListQuery
 
 object ListQuery:
 
-  /** Checks one filter as [[ListQuery.checked]] describes. */
   private def check
     (filter: Filter, kinds: Map[String, Kind])
     : Either[String, Filter] = filter.fold[Either[String, Filter]](
     not = _.map(Not(_)),
     all = _.sequence.map(And(_)),
     any = _.sequence.map(Or(_)),
-    compare = (field, comparison, value) =>
+    compare = (field, operator, value) =>
       kindOf(field, kinds)
         .flatMap(convert(field, value, _))
-        .map(Compare(field, comparison, _)),
+        .map(Compare(field, operator, _)),
     contains = (field, text) =>
       kindOf(field, kinds).flatMap(kind =>
         Either.cond(
@@ -92,16 +122,14 @@ object ListQuery:
     missing = field => kindOf(field, kinds).as(Missing(field)),
   )
 
-  /** The kind of the named field, or a complaint that there is no such field. */
   private def kindOf
     (field: String, kinds: Map[String, Kind])
     : Either[String, Kind] = kinds
     .get(field)
     .toRight(s"No such field `$field`.")
 
-  /** A value as one of the given kind, or a complaint that it is not one. */
   private def convert
     (field: String, value: Value, kind: Kind)
     : Either[String, Value] = value
-    .as(kind)
+    .convertedTo(kind)
     .toRight(s"`$field` holds ${ kind.noun }, not ${ value.kind.noun }.")

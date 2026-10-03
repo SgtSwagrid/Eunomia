@@ -1,10 +1,9 @@
 package com.alecdorrington.eunomia
 package model
 
-import java.util.Locale
 import munit.FunSuite
 
-class SchemaSuite extends FunSuite:
+class ListSchemaSuite extends FunSuite:
 
   private final case class Book
     (
@@ -26,7 +25,7 @@ class SchemaSuite extends FunSuite:
   private val pages   = Field.of[Book]("pages", _.pages)
   private val inPrint = Field.of[Book]("inPrint", _.inPrint)
 
-  private val schema = Schema(name, rating, pages, inPrint)
+  private val schema = ListSchema(name, rating, pages, inPrint)
 
   private def names(query: ListQuery): Either[String, List[String]] = schema
     .run(query, books)
@@ -37,14 +36,14 @@ class SchemaSuite extends FunSuite:
       schema.kinds,
       Map(
         "name"    -> Kind.Text,
-        "rating"  -> Kind.Whole,
-        "pages"   -> Kind.Whole,
+        "rating"  -> Kind.Integer,
+        "pages"   -> Kind.Integer,
         "inPrint" -> Kind.Flag,
       ),
     )
 
   test("a schema may not name two fields alike"):
-    intercept[IllegalArgumentException](Schema(
+    intercept[IllegalArgumentException](ListSchema(
       name,
       rating,
       Field.of[Book]("name", _.pages),
@@ -117,24 +116,24 @@ class SchemaSuite extends FunSuite:
       Right(List("Alpha", "Delta", "Gamma", "beta")),
     )
 
-  test("a page is a window, and the total counts every match"):
+  test("a page selects a window, and the total counts every match"):
     val query = ListQuery(
       order = List(name.ascending),
       page = Some(Page(1, 2)),
     )
-    val paged = schema.run(query, books)
+    val window = schema.run(query, books)
     assertEquals(
-      paged.map(_.items.map(_.name)),
+      window.map(_.items.map(_.name)),
       Right(List("Delta", "Gamma")),
     )
-    assertEquals(paged.map(_.total), Right(4))
+    assertEquals(window.map(_.total), Right(4))
     assertEquals(
-      paged.map(_.page),
+      window.map(_.page),
       Right(Some(Page(1, 2))),
     )
 
-  test("a window starting past the end is the last that holds anything"):
-    val window = (offset: Int) =>
+  test("a page starting past the end is the last that holds anything"):
+    val startingAt = (offset: Int) =>
       schema
         .run(
           ListQuery(
@@ -143,13 +142,13 @@ class SchemaSuite extends FunSuite:
           ),
           books,
         )
-        .map(paged => (paged.items.map(_.name), paged.page))
+        .map(window => (window.items.map(_.name), window.page))
     assertEquals(
-      window(3),
+      startingAt(3),
       Right((List("beta"), Some(Page(3, 3)))),
     )
     assertEquals(
-      window(9),
+      startingAt(9),
       Right((List("beta"), Some(Page(3, 3)))),
     )
     assertEquals(
@@ -169,12 +168,12 @@ class SchemaSuite extends FunSuite:
   test("a value is converted to the kind of its field, when it can be"):
     val whole = Filter.Compare(
       "rating",
-      Comparison.Eq,
+      Operator.Equal,
       Value.Real(45.0),
     )
     val half = Filter.Compare(
       "rating",
-      Comparison.Eq,
+      Operator.Equal,
       Value.Real(45.5),
     )
     assertEquals(
@@ -190,13 +189,25 @@ class SchemaSuite extends FunSuite:
     assert(names(ListQuery(page = Some(Page(-1, 10)))).isLeft)
     assert(names(ListQuery(page = Some(Page(0, 0)))).isLeft)
 
+  test("a page however large holds every item from its offset on"):
+    assertEquals(
+      names(ListQuery(page = Some(Page(1, Int.MaxValue)))),
+      Right(List("beta", "Gamma", "Delta")),
+    )
+
+  test("the page after a huge one stops at the largest offset"):
+    assertEquals(
+      Page(1, Int.MaxValue).next,
+      Page(Int.MaxValue, Int.MaxValue),
+    )
+
   test("a limit caps the page, and an unpaged query gets the first"):
     assertEquals(
-      ListQuery().limited(50).page,
+      ListQuery().capped(50).page,
       Some(Page(0, 50)),
     )
     assertEquals(
-      ListQuery(page = Some(Page(10, 500))).limited(50).page,
+      ListQuery(page = Some(Page(10, 500))).capped(50).page,
       Some(Page(10, 50)),
     )
 
@@ -240,7 +251,7 @@ class SchemaSuite extends FunSuite:
       List(Order("rating"), Order("name")),
     )
 
-  test("keys are written and read back as a sort parameter"):
+  test("keys are written and read back as an order parameter"):
     val keys = List(
       Order("rating", descending = true),
       Order("name"),
@@ -248,17 +259,20 @@ class SchemaSuite extends FunSuite:
     assertEquals(Order.textOf(keys), "-rating,name")
     assertEquals(Order.parseAll("-rating, name,"), keys)
 
-  test("case is folded alike whatever the default locale"):
-    val original = Locale.getDefault
-    try
-      Locale.setDefault(Locale.forLanguageTag("tr"))
-      assertEquals(
-        schema
-          .run(
-            ListQuery(name.contains("iliad")),
-            List(Book("ILIAD", None, 1, inPrint = true)),
-          )
-          .map(_.items.size),
-        Right(1),
-      )
-    finally Locale.setDefault(original)
+  test("text holds text whatever the case of either, anywhere in it"):
+    assertEquals(
+      names(ListQuery(name.contains("ELT"))),
+      Right(List("Delta")),
+    )
+    assertEquals(
+      names(ListQuery(name.contains("a"))).map(_.size),
+      Right(4),
+    )
+    assertEquals(
+      names(ListQuery(name.contains(""))).map(_.size),
+      Right(4),
+    )
+    assertEquals(
+      names(ListQuery(name.contains("Alphabet"))),
+      Right(Nil),
+    )

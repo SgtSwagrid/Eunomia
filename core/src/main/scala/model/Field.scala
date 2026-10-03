@@ -2,10 +2,9 @@ package com.alecdorrington.eunomia
 package model
 
 /**
-  * One named, typed field of the items in a list: how to read it from an item,
-  * and the vocabulary for filtering and ordering by it. The name is what
-  * queries refer to, so a server and a client describing the same list must
-  * agree on it.
+  * A named, typed field of the items in a list, with the vocabulary for
+  * filtering and ordering by it. A server and a client describing the same list
+  * must agree on its name.
   *
   * {{{
   * val rating = Field.of[Book]("rating", _.rating) // A `Field[Book, Long]`.
@@ -22,79 +21,175 @@ package model
   *   The name queries refer to this field by.
   *
   * @param read
-  *   Reads this field's value from one item, if it has one.
+  *   The function reading this field's value from one item, if it has one.
   */
 final class Field[-X, B : Scalar as B](val name: String, read: X => Option[B]):
 
   /** The kind of value this field holds. */
   def kind: Kind = B.kind
 
-  /** This field's value in one item, if it has one. */
-  def valueOf(item: X): Option[Value] = read(item).map(B.encode)
+  /**
+    * Reads this field's value from one item.
+    *
+    * @param item
+    *   The item to read.
+    *
+    * @return
+    *   An option holding the value, or `None` where the item has none.
+    */
+  def valueOf(item: X): Option[Value] = read(item).map(B.toValue)
 
-  /** Holds wherever this field equals the given value. */
-  def is(value: B): Filter = compare(Comparison.Eq, value)
+  /**
+    * Creates a filter holding wherever this field equals a value.
+    *
+    * @param value
+    *   The value to equal.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def is(value: B): Filter = compare(Operator.Equal, value)
 
-  /** Holds wherever this field has a value, and it differs from the given one. */
-  def isNot(value: B): Filter = compare(Comparison.Ne, value)
+  /**
+    * Creates a filter holding wherever this field has a value that differs from
+    * the given one.
+    *
+    * @param value
+    *   The value to differ from.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def isNot(value: B): Filter = compare(Operator.Unequal, value)
 
-  /** Holds wherever this field is less than the given value. */
-  def < (bound: B): Filter = compare(Comparison.Lt, bound)
+  /**
+    * Creates a filter holding wherever this field is less than a bound.
+    *
+    * @param bound
+    *   The exclusive upper bound.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def < (bound: B): Filter = compare(Operator.Less, bound)
 
-  /** Holds wherever this field is at most the given value. */
-  def <= (bound: B): Filter = compare(Comparison.Le, bound)
+  /**
+    * Creates a filter holding wherever this field is at most a bound.
+    *
+    * @param bound
+    *   The inclusive upper bound.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def <= (bound: B): Filter = compare(Operator.AtMost, bound)
 
-  /** Holds wherever this field is greater than the given value. */
-  def > (bound: B): Filter = compare(Comparison.Gt, bound)
+  /**
+    * Creates a filter holding wherever this field is greater than a bound.
+    *
+    * @param bound
+    *   The exclusive lower bound.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def > (bound: B): Filter = compare(Operator.Greater, bound)
 
-  /** Holds wherever this field is at least the given value. */
-  def >= (bound: B): Filter = compare(Comparison.Ge, bound)
+  /**
+    * Creates a filter holding wherever this field is at least a bound.
+    *
+    * @param bound
+    *   The inclusive lower bound.
+    *
+    * @return
+    *   A filter on this field.
+    */
+  def >= (bound: B): Filter = compare(Operator.AtLeast, bound)
 
-  /** Holds wherever this field equals any one of the given values. */
+  /**
+    * Creates a filter holding wherever this field equals any one of the given
+    * values.
+    *
+    * @param values
+    *   The values to equal.
+    *
+    * @return
+    *   A filter on this field, holding nowhere if `values` is empty.
+    */
   def oneOf(values: B*): Filter =
-    Filter.OneOf(name, values.toList.map(B.encode))
+    Filter.OneOf(name, values.toList.map(B.toValue))
 
-  /** Holds wherever this text field contains the given text, ignoring case. */
+  /**
+    * Creates a filter holding wherever this text field contains the given text,
+    * ignoring case.
+    *
+    * @param text
+    *   The text to seek.
+    *
+    * @return
+    *   A filter on this field.
+    */
   def contains(text: String)(using B =:= String): Filter =
     Filter.Contains(name, text)
 
-  /** Holds wherever this field has no value. */
+  /** The filter holding wherever this field has no value. */
   def missing: Filter = Filter.Missing(name)
 
-  /** Holds wherever this field has a value. */
+  /** The filter holding wherever this field has a value. */
   def present: Filter = !missing
 
-  /** Orders by this field, least first. */
+  /** The key ordering by this field, least first. */
   def ascending: Order = Order(name)
 
-  /** Orders by this field, greatest first. */
+  /** The key ordering by this field, greatest first. */
   def descending: Order = Order(name, descending = true)
 
-  private def compare(comparison: Comparison, value: B): Filter = Filter
-    .Compare(name, comparison, B.encode(value))
+  private def compare(operator: Operator, value: B): Filter =
+    Filter.Compare(name, operator, B.toValue(value))
 
 object Field:
 
-  /** Starts a field of items of type `X`, so that only its reader is inferred. */
+  /**
+    * Starts a field of items of type `X`, so that only its reader is inferred.
+    *
+    * @tparam X
+    *   The type of the items.
+    *
+    * @return
+    *   A builder of fields of `X`.
+    */
   def of[X]: Builder[X] = Builder()
 
-  /** Builds fields of items of type `X`. */
+  /**
+    * A builder of fields of items of type `X`.
+    *
+    * @tparam X
+    *   The type of the items.
+    */
   final class Builder[X]:
 
     /**
-      * A field read from each item by the given function, which may return
-      * either a value or an optional one.
+      * Creates a field read from each item by the given function.
+      *
+      * @tparam V
+      *   The type the function returns: `B`, or `Option[B]`.
+      *
+      * @tparam B
+      *   The type of the field's values.
       *
       * @param name
       *   The name queries refer to the field by.
       *
-      * @param get
-      *   Reads the field from one item.
+      * @param read
+      *   The function reading the field from one item.
+      *
+      * @return
+      *   A field of `X`.
       */
     def apply[V, B]
-      (name: String, get: X => V)
+      (name: String, read: X => V)
       (
         using nullable: Nullable[V, B],
         scalar: Scalar[B],
       )
-      : Field[X, B] = Field(name, get.andThen(nullable(_)))
+      : Field[X, B] = Field(name, read.andThen(nullable(_)))

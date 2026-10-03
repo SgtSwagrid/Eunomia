@@ -6,20 +6,19 @@ import com.alecdorrington.eunomia.model.{Field, Kind, Order, Page, Value}
 import com.raquo.laminar.api.L.*
 
 /**
-  * A table over a [[ListView]]: a heading per column, which orders the list by
-  * the column's field when clicked; a header cell per column, into which a
-  * filter on that field can be typed in
-  * [[com.alecdorrington.eunomia.model.CellFilter]] syntax; a row per item; and,
-  * while the list is paged, a pager.
+  * A table over a [[ListState]]: a heading per column, which orders the list by
+  * the column's field when clicked; a header cell per column, which reads a
+  * filter in [[com.alecdorrington.eunomia.model.CellFilter]] syntax; a row per
+  * item; and, while the list is paged, a pager.
   *
-  * Unstyled: the host application styles it through these classes:
+  * Unstyled: the host styles it through these classes:
   *   - `list-table`, the table, inside `list-table-frame`, which also holds the
   *     pager and the notes;
   *   - `list-sort`, a heading's ordering button, with `list-sorted-asc` or
   *     `list-sorted-desc` while the list is ordered by its field;
   *   - `list-filter`, a header cell's input, with `list-filter-invalid` while
   *     its text cannot be read;
-  *   - `item-row`, each row, with `item-selected` on the selected one;
+  *   - `list-row`, each row, with `list-row-selected` on the selected one;
   *   - `list-empty` and `list-problem`, the notes shown for an empty list and a
   *     query that could not be run; and `list-pager`, `list-page`,
   *     `list-range`.
@@ -27,7 +26,10 @@ import com.raquo.laminar.api.L.*
 object Table:
 
   /**
-    * One column of a table.
+    * A column of a table.
+    *
+    * @tparam X
+    *   The type of the items.
     *
     * @param label
     *   The heading.
@@ -36,8 +38,8 @@ object Table:
     *   The contents of this column's cell in one row, given that row's item.
     *
     * @param field
-    *   The field this column shows, if the list may be ordered and filtered by
-    *   it.
+    *   The name of the field this column shows, if the list may be ordered and
+    *   filtered by it.
     *
     * @param filterable
     *   Whether a filter on the field may be typed into the header cell.
@@ -53,75 +55,111 @@ object Table:
   object Column:
 
     /**
-      * A column showing one field's value as plain text, ordered and filtered
-      * by it.
+      * Creates a column showing one field's value as plain text, ordered and
+      * filtered by it.
+      *
+      * @tparam X
+      *   The type of the items.
+      *
+      * @param label
+      *   The heading.
+      *
+      * @param field
+      *   The field shown.
+      *
+      * @return
+      *   A column of the field.
       */
     def of[X](label: String, field: Field[X, ?]): Column[X] =
-      shown(label, field)(item => field.valueOf(item).fold("")(plain))
+      formatted(label, field)(item => field.valueOf(item).fold("")(plain))
 
     /**
-      * A column showing one field as the given text, ordered and filtered by
-      * it.
+      * Creates a column showing each item as text, ordered and filtered by one
+      * field.
+      *
+      * @tparam X
+      *   The type of the items.
+      *
+      * @param label
+      *   The heading.
+      *
+      * @param field
+      *   The field ordered and filtered by.
+      *
+      * @param format
+      *   The text shown for one item.
+      *
+      * @return
+      *   A column of the field.
       */
-    def shown[X]
+    def formatted[X]
       (label: String, field: Field[X, ?])
-      (show: X => String)
+      (format: X => String)
       : Column[X] = Column(
       label,
-      item => text <-- item.map(show),
+      item => text <-- item.map(format),
       Some(field.name),
     )
 
-    /** A field value as plain text. */
     private def plain(value: Value): String = value match
-      case Value.Text(text)    => text
-      case Value.Whole(number) => number.toString
-      case Value.Real(number)  => number.toString
-      case Value.Flag(flag)    => if flag then "✓" else ""
+      case Value.Text(text)      => text
+      case Value.Integer(number) => number.toString
+      case Value.Real(number)    => number.toString
+      case Value.Flag(flag)      => if flag then "✓" else ""
 
   /**
-    * A table over a list.
+    * Renders a table over a list.
     *
-    * @param view
+    * @tparam X
+    *   The type of the items.
+    *
+    * @tparam K
+    *   The type of the items' keys.
+    *
+    * @param list
     *   The list.
     *
     * @param columns
-    *   The columns, left to right.
+    *   The columns, in reading order.
     *
     * @param key
-    *   Identifies each item, so that a row survives its item changing.
+    *   The function identifying each item, so that a row survives its item
+    *   changing.
     *
     * @param select
-    *   Responds to a click on a row, if rows may be selected.
+    *   The response to a click on a row, or `None` if rows cannot be selected.
     *
     * @param selected
     *   The key of the selected item, if any.
     *
-    * @param empty
-    *   Shown in place of the rows while none match.
+    * @param emptyNote
+    *   The note shown in place of the rows while none match.
+    *
+    * @return
+    *   An element holding the table, its notes and its pager.
     */
   def apply[X, K]
     (
-      view: ListView[X],
+      list: ListState[X],
       columns: List[Column[X]],
       key: X => K,
       select: Option[K => Unit] = None,
       selected: Signal[Option[K]] = Val(None),
-      empty: String = "Nothing to show.",
+      emptyNote: String = "Nothing to show.",
     )
     : HtmlElement = div(
     cls := "list-table-frame",
     table(
       cls := "list-table",
       thead(
-        tr(columns.map(heading(view, _))),
+        tr(columns.map(heading(list, _))),
         Option.when(columns.exists(filterField(_).isDefined))(tr(
-          columns.map(filterCell(view, _)),
+          columns.map(filterCell(list, _)),
         )),
       ),
       tbody(
         children <--
-          view
+          list
             .items
             .split(key)((id, _, item) =>
               row(columns, id, item, select, selected),
@@ -129,40 +167,43 @@ object Table:
       ),
     ),
     p(
-      empty,
+      emptyNote,
       cls := "list-empty",
-      visibleWhen(view.items.map(_.isEmpty)),
+      visibleWhen(list.items.map(_.isEmpty)),
     ),
-    child.maybe <-- view.problem.map(_.map(p(_, cls := "list-problem"))),
-    pager(view),
+    child.maybe <-- list.problem.map(_.map(p(_, cls := "list-problem"))),
+    pager(list),
   )
 
-  private def heading[X](view: ListView[X], column: Column[X]): HtmlElement =
+  private def heading[X](list: ListState[X], column: Column[X]): HtmlElement =
     th(
       column.field match
         case None        => span(column.label)
         case Some(field) => button(
             column.label,
             cls := "list-sort",
-            cls <-- view.orderOf(field).map(sortedClass),
-            onClick --> (_ => view.toggleOrder(field)),
+            cls <-- list.orderOf(field).map(sortedClass),
+            onClick --> (_ => list.toggleOrder(field)),
           ),
     )
 
-  private def filterCell[X](view: ListView[X], column: Column[X]): HtmlElement =
-    th(filterField(column).map(field =>
-      input(
-        typ         := "text",
-        cls         := "list-filter",
-        placeholder := view.kindOf(field).fold("")(hint),
-        cls("list-filter-invalid") <-- view.cellProblem(field).map(_.isDefined),
-        title <-- view.cellProblem(field).map(_.getOrElse("")),
-        controlled(
-          value <-- view.cell(field),
-          onInput.mapToValue --> (view.typeInto(field, _)),
-        ),
+  private def filterCell[X]
+    (list: ListState[X], column: Column[X])
+    : HtmlElement = th(filterField(column).map(filterInput(list, _)))
+
+  private def filterInput[X](list: ListState[X], field: String): HtmlElement =
+    val problem = list.cellProblem(field)
+    input(
+      typ         := "text",
+      cls         := "list-filter",
+      placeholder := list.kindOf(field).fold("")(hint),
+      cls("list-filter-invalid") <-- problem.map(_.isDefined),
+      title <-- problem.map(_.getOrElse("")),
+      controlled(
+        value <-- list.cell(field),
+        onInput.mapToValue --> (list.typeInto(field, _)),
       ),
-    ))
+    )
 
   private def row[X, K]
     (
@@ -173,38 +214,32 @@ object Table:
       selected: Signal[Option[K]],
     )
     : HtmlElement = tr(
-    cls := "item-row",
-    cls("item-selected") <-- selected.map(_.contains(id)),
+    cls := "list-row",
+    cls("list-row-selected") <-- selected.map(_.contains(id)),
     select.map(choose => onClick --> (_ => choose(id))),
     columns.map(column => td(column.render(item))),
   )
 
-  private def pager[X](view: ListView[X]): HtmlElement = div(
-    cls := "list-pager",
-    visibleWhen(view.page.map(_.isDefined)),
-    turner(
-      view,
-      "‹",
-      view.page.map(_.forall(_.offset == 0)),
-    )(_.previous),
-    span(
-      cls := "list-range",
-      text <-- view.page.combineWith(view.total).mapN(range),
-    ),
-    turner(
-      view,
-      "›",
-      view.page.combineWith(view.total).mapN(atEnd),
-    )(_.next),
-  )
+  private def pager[X](list: ListState[X]): HtmlElement =
+    val shown = list.page.combineWith(list.total)
+    div(
+      cls := "list-pager",
+      visibleWhen(list.page.map(_.isDefined)),
+      turner(
+        list,
+        "‹",
+        list.page.map(_.forall(_.offset == 0)),
+      )(_.previous),
+      span(
+        cls := "list-range",
+        text <-- shown.mapN(range),
+      ),
+      turner(list, "›", shown.mapN(atEnd))(_.next),
+    )
 
-  /**
-    * A pager's button, which shows the window `turn` takes the shown one to,
-    * disabled while `blocked` holds.
-    */
   private def turner[X]
     (
-      view: ListView[X],
+      list: ListState[X],
       arrow: String,
       blocked: Signal[Boolean],
     )
@@ -213,11 +248,10 @@ object Table:
     arrow,
     cls := "list-page",
     disabled <-- blocked,
-    onClick.compose(_.sample(view.page)) -->
-      (_.foreach(window => view.showPage(turn(window)))),
+    onClick.compose(_.sample(list.page)) -->
+      (_.foreach(page => list.showPage(turn(page)))),
   )
 
-  /** The field a filter may be typed for in this column's header cell, if any. */
   private def filterField[X](column: Column[X]): Option[String] = column
     .field
     .filter(_ => column.filterable)
@@ -226,18 +260,19 @@ object Table:
     if key.descending then "list-sorted-desc" else "list-sorted-asc",
   )
 
-  /** A reminder of the syntax a header cell reads, for a field of one kind. */
   private def hint(kind: Kind): String = kind match
-    case Kind.Text              => "Contains…"
-    case Kind.Whole | Kind.Real => ">50, 10..20"
-    case Kind.Flag              => "yes / no"
+    case Kind.Text                => "Contains…"
+    case Kind.Integer | Kind.Real => ">50, 10..20"
+    case Kind.Flag                => "yes / no"
 
-  private def range(page: Option[Page], total: Int): String = page match
-    case Some(window) if total > 0 =>
-      s"${ window.offset + 1 }–${ (window.offset + window.limit).min(
-          total,
-        ) } of $total"
+  private[client] def range(page: Option[Page], total: Int): String = page match
+    case Some(shown) if total > 0 =>
+      s"${ shown.offset + 1 }–${ last(shown, total) } of $total"
     case _ => total.toString
 
-  private def atEnd(page: Option[Page], total: Int): Boolean =
-    page.forall(window => window.offset + window.limit >= total)
+  /** Never sums the offset and limit, which may overflow. */
+  private[client] def atEnd(page: Option[Page], total: Int): Boolean = page
+    .forall(shown => shown.limit >= total - shown.offset)
+
+  private def last(shown: Page, total: Int): Int = shown.offset +
+    (total - shown.offset).min(shown.limit)
