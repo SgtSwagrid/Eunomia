@@ -2,12 +2,13 @@ package com.alecdorrington.eunomia
 package model
 
 import cats.syntax.all.*
-import com.alecdorrington.eunomia.model.Comparison.*
 import com.alecdorrington.eunomia.model.Filter.*
+import com.alecdorrington.eunomia.model.Operator.*
+import scala.util.matching.Regex
 
 /**
   * The syntax of the filter a person types into one column's header cell, where
-  * the field is fixed, so only the condition on it need be written.
+  * the field is fixed and only the condition on it is written.
   *
   * Alternatives separated by `|` match wherever any one of them does. Each
   * alternative is written according to the kind of the field:
@@ -25,7 +26,7 @@ import com.alecdorrington.eunomia.model.Filter.*
 object CellFilter:
 
   /**
-    * Reads what was typed into one column's header cell.
+    * Parses what was typed into one column's header cell.
     *
     * @param field
     *   The name of the column's field.
@@ -34,10 +35,10 @@ object CellFilter:
     *   The kind of the column's field.
     *
     * @param input
-    *   What was typed.
+    *   The text typed.
     *
     * @return
-    *   The filter written, or why it cannot be read.
+    *   Either the filter written, or a message saying why it cannot be read.
     */
   def parse(field: String, kind: Kind, input: String): Either[String, Filter] =
     val alternatives = input.split('|').map(_.trim).filter(_.nonEmpty).toList
@@ -47,43 +48,45 @@ object CellFilter:
   private def alternative
     (field: String, kind: Kind, text: String)
     : Either[String, Filter] = (text, kind) match
-    case ("?", _)                    => Right(Missing(field))
-    case ("!?", _)                   => Right(!Missing(field))
-    case (_, Kind.Text)              => Right(textual(field, text))
-    case (_, Kind.Flag)              => flag(field, text)
-    case (_, Kind.Whole | Kind.Real) => text
-        .split("\\s+")
+    case ("?", _)                      => Right(Missing(field))
+    case ("!?", _)                     => Right(!Missing(field))
+    case (_, Kind.Text)                => Right(textual(field, text))
+    case (_, Kind.Flag)                => flag(field, text)
+    case (_, Kind.Integer | Kind.Real) => spaces
+        .split(text)
         .toList
         .traverse(condition(field, kind, _))
         .map(Filter.all)
 
+  private val spaces: Regex = "\\s+".r
+
   private def textual(field: String, text: String): Filter = text match
-    case s"!=$exact" => Compare(field, Ne, Value.Text(exact))
-    case s"=$exact"  => Compare(field, Eq, Value.Text(exact))
+    case s"!=$exact" => Compare(field, Unequal, Value.Text(exact))
+    case s"=$exact"  => Compare(field, Equal, Value.Text(exact))
     case s"!$part"   => !Contains(field, part)
     case part        => Contains(field, part)
 
+  /**
+    * Case is folded letter by letter, by no locale's rules, as [[ListSchema]]
+    * folds it, so that the JVM reads a flag as a browser does.
+    */
   private def flag(field: String, text: String): Either[String, Filter] =
-    text.toLowerCase match
+    text.map(_.toLower) match
       case "yes" | "y" | "true" | "1" =>
-        Right(Compare(field, Eq, Value.Flag(true)))
+        Right(Compare(field, Equal, Value.Flag(true)))
       case "no" | "n" | "false" | "0" =>
-        Right(Compare(field, Eq, Value.Flag(false)))
+        Right(Compare(field, Equal, Value.Flag(false)))
       case _ => Left(s"`$text` is not ${ Kind.Flag.noun }.")
 
   private def condition
     (field: String, kind: Kind, token: String)
     : Either[String, Filter] = token match
-    case s"$low..$high"           => range(field, kind, low, high)
-    case Operator(comparison, of) =>
-      number(kind, of).map(Compare(field, comparison, _))
-    case exact => number(kind, exact).map(Compare(field, Eq, _))
+    case s"$low..$high"              => range(field, kind, low, high)
+    case Prefixed(operator, operand) =>
+      number(kind, operand).map(Compare(field, operator, _))
+    case exact => number(kind, exact).map(Compare(field, Equal, _))
 
-  /**
-    * The inclusive range between two bounds. Bounds the wrong way round hold
-    * nowhere, which is a mistyping far more often than it is a request for
-    * nothing, so they are refused rather than quietly matching no item.
-    */
+  /** Refuses bounds the wrong way round, as they are almost always a typo. */
   private def range
     (
       field: String,
@@ -96,29 +99,25 @@ object CellFilter:
     .flatMap((least, greatest) =>
       Either.cond(
         Ordering[Value].lteq(least, greatest),
-        Compare(field, Ge, least) && Compare(field, Le, greatest),
+        Compare(field, AtLeast, least) && Compare(field, AtMost, greatest),
         s"`$low..$high` holds nothing, as `$low` is above `$high`.",
       ),
     )
 
-  /** A comparison written as its operator, and whatever follows it. */
-  private object Operator:
+  private object Prefixed:
 
-    def unapply(token: String): Option[(Comparison, String)] = Comparison
-      .bySymbolLength
-      .find(comparison => token.startsWith(comparison.symbol))
-      .map(comparison => (comparison, token.drop(comparison.symbol.length)))
+    def unapply(token: String): Option[(Operator, String)] = Operator
+      .longestFirst
+      .find(operator => token.startsWith(operator.symbol))
+      .map(operator => (operator, token.drop(operator.symbol.length)))
 
-  /**
-    * A number of the given kind, read exactly wherever it can be: a whole
-    * number too large for a `Double` to hold is still read as itself.
-    */
+  /** Tries a `Long` first, as a `Double` loses precision on large numbers. */
   private def number(kind: Kind, text: String): Either[String, Value] =
     if text.isEmpty then Left(s"A ${ kind.noun } is missing.")
     else
       text
         .toLongOption
-        .map(Value.Whole(_))
+        .map(Value.Integer(_))
         .orElse(text.toDoubleOption.map(Value.Real(_)))
-        .flatMap(_.as(kind))
+        .flatMap(_.convertedTo(kind))
         .toRight(s"`$text` is not a ${ kind.noun }.")

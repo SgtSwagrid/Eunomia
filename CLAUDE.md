@@ -12,21 +12,30 @@ Keep it concise and actionable.
 ## Project overview
 
 This is Eunomia, a Scala 3 library for filtering, ordering and paging lists of items, whether in memory,
-in a database or over the wire, for full stack websites built on Tapir, Slick and Laminar. It is in beta.
+in a database or over the wire, for full stack websites built on Slick and Laminar, and optionally Tapir. It is in beta.
 
-- `core` (`com.alecdorrington.eunomia`, JVM + JS) - `model/ListQuery`, `Filter`, `Order`, `Page`, `Schema` for
-  in-memory evaluation, `ListReply` as either the whole list or one window, and `api/ListApi` for the wire.
+- `core` (`com.alecdorrington.eunomia`, JVM + JS) - `model/ListQuery`, `Filter`, `Order`, `Page`, `ListSchema` for
+  in-memory evaluation, `ListReply` as either the whole list or one `Window`, and `api/ListParameters`, a query as the parameters of a
+  request (written by `of`, read back by `parse`, whatever framework serves the request).
 - `server` (`com.alecdorrington.eunomia.server`) - `SqlLists` runs a query in SQL over the host's JDBC profile.
-- `client` (`com.alecdorrington.eunomia.client`) - `ListSource`, `ListView` and an unstyled `Table`.
+- `tapir` (`com.alecdorrington.eunomia.tapir`, JVM + JS) - `ListApi`, the endpoint input and output for Tapir, built
+  on `ListParameters`. The only module that depends on Tapir: keep it that way, so that a host serving its endpoints
+  with anything else never needs it. `ListReply`'s Tapir schema is written by hand, as its circe codec is
+  (`{"window": ...}` or `{"whole": [...]}`): a derived one documents the cases' fields instead, which is not what is sent.
+  Tapir once also brought `scala-java-time` (and with it `java.util.Locale`) to the JS side of everything, silently:
+  nothing in `core` or `client` may use `java.util.Locale` or `java.time`, which Scala.js lacks without a library.
+  `ListSchema.contains` folds case with `regionMatches` for this reason, and the default-locale test is JVM only
+  (`core/src/test/scalajvm`). A missing class shows only when JS is linked, as in `eunomiaCoreJS/test`.
+- `client` (`com.alecdorrington.eunomia.client`) - `ListSource`, `ListState` and an unstyled `Table`.
   `ListSource` was named `Source` once and clashed with Laminar's `L.*`; don't reintroduce that.
   An endpoint's list is reloaded by its `reloads` stream (the host says when, as nothing here sees writes),
   keeping the rows on screen until the answer arrives; `ListSource.reshown` reloads when the page is looked
   at again. The first request of an endpoint's load isn't abandoned when the query changes: once it
   answers, `remote` catches up with the query as it stands, and an error gives way to the next query.
   Don't put a query-following switch above the first request instead: a whole-list reply can't stop it
-  without feedback state, so a short list would send a request per query. A window starting past the end
-  of a list is answered with the last that holds anything (`Page.within`), by `Schema.run` and `SqlLists`
-  alike, so that a list shrinking under its reader never leaves them on an empty window; keep the two
+  without feedback state, so a short list would send a request per query. A page starting past the end
+  of a list is answered with the last that holds anything (`Page.within`), by `ListSchema.run` and `SqlLists`
+  alike, so that a list shrinking under its reader never leaves them on an empty page; keep the two
   paths agreeing (the agreement tests in `SqlListsSuite`).
 
 See [README.md](README.md) for how a host wires it up.
@@ -42,11 +51,11 @@ other than `plugins-scalajs.sbt`) comes from further upstream still, in
 
 ### Build
 
-- `eunomiaCore` is a `projectMatrix` (JVM + JS; the JS row is `eunomiaCoreJS`), `eunomiaServer` is JVM, `eunomiaClient` is
-  Scala.js, and the root project `eunomia` only aggregates them and is never published.
+- `eunomiaCore` and `eunomiaTapir` are `projectMatrix`es (JVM + JS; the JS rows are `eunomiaCoreJS` and `eunomiaTapirJS`),
+  `eunomiaServer` is JVM, `eunomiaClient` is Scala.js, and the root project `eunomia` only aggregates them and is never published.
 - Project ids are prefixed with the library's name because the private project includes this build by reference
   (`ProjectRef(file("eunomia"), ...)`), and its own projects are called `server`, `client` and `common`.
-- The matrix pins `sourceDirectory` to `(ThisBuild / baseDirectory) / "core" / "src"`. Don't remove it: sbt 2.0.8
+- Each matrix pins `sourceDirectory` to `(ThisBuild / baseDirectory) / "<module>" / "src"`. Don't remove it: sbt 2.0.8
   resolves a matrix's sources against the working directory, which is the host's when the build is included by reference,
   and the library then compiles to an empty JAR without a single error of its own.
 - The library must never depend on anything in the project that includes it, and nothing here should assume a host, a database or a JDBC profile.
@@ -71,6 +80,11 @@ other than `plugins-scalajs.sbt`) comes from further upstream still, in
 ### Code Style
 
 - You must read the [Code Style Guidelines](docs/STYLE_GUIDE.md).
+- Document every public type and member: a summary, then `@param` for each explicit parameter,
+  `@tparam` for each type parameter, and `@return` for any result but `Unit`, each one short
+  sentence. Summaries read: types "A ...", values "The ...", Booleans "Whether ...", methods a
+  third-person verb ("Sends ..."), never "Returns ...". Private members get a comment only for a
+  non-obvious contract or gotcha, usually in one sentence.
 
 ### Pull Requests
 

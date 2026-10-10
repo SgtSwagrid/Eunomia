@@ -1,6 +1,8 @@
 package com.alecdorrington.eunomia
 package model
 
+import io.circe.parser.decode
+import io.circe.syntax.*
 import munit.FunSuite
 
 class FilterSuite extends FunSuite:
@@ -10,7 +12,6 @@ class FilterSuite extends FunSuite:
   private val name   = Field.of[Book]("name", _.name)
   private val rating = Field.of[Book]("rating", _.rating)
 
-  /** One filter of every shape there is. */
   private val every = (name.contains("x") && !(rating >= 50L)) ||
     rating.oneOf(1L, 2L) || rating.missing || name.is("y")
 
@@ -28,7 +29,6 @@ class FilterSuite extends FunSuite:
       every,
     )
 
-  /** The number of leaves a fold reaches in a filter. */
   private def leaves(filter: Filter): Int = filter.fold[Int](
     not = identity,
     all = _.sum,
@@ -45,3 +45,29 @@ class FilterSuite extends FunSuite:
   test("an empty conjunction and disjunction each reach no leaf"):
     assertEquals(leaves(Filter.always), 0)
     assertEquals(leaves(Filter.never), 0)
+
+  test("a filter is sent as small JSON objects"):
+    assertEquals(
+      (rating >= 50L).asJson.noSpaces,
+      """{"field":"rating","is":">=","value":50}""",
+    )
+
+  test("every shape of filter survives the wire"):
+    val filter = (name.contains("x") && !(rating >= 50L)) ||
+      rating.oneOf(1L, 2L) || rating.missing || Filter.Compare(
+        "score",
+        Operator.Unequal,
+        Value.Real(2.5),
+      ) || Filter.Compare(
+        "inPrint",
+        Operator.Equal,
+        Value.Flag(true),
+      )
+    assertEquals(
+      decode[Filter](filter.asJson.noSpaces),
+      Right(filter),
+    )
+
+  test("an unrecognised filter is refused"):
+    assert(decode[Filter]("""{"xor":[]}""").isLeft)
+    assert(decode[Filter]("""{"field":"rating","is":"~","value":1}""").isLeft)

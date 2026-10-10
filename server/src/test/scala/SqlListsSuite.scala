@@ -9,7 +9,6 @@ import scala.concurrent.duration.*
 import slick.jdbc.H2Profile
 import slick.jdbc.H2Profile.api.*
 
-/** One row of the table under test. */
 final case class Row
   (
     id: Long,
@@ -19,33 +18,25 @@ final case class Row
     inPrint: Boolean,
   )
 
-/** The table under test, with a nullable column and a column of each kind. */
 final class Rows(tag: Tag) extends Table[Row](tag, "list_rows"):
 
   def id      = column[Long]("id", O.PrimaryKey)
   def name    = column[String]("name")
   def rating  = column[Option[Long]]("rating")
   def score   = column[Double]("score")
-  def inPrint = column[Boolean]("inPrint")
+  def inPrint = column[Boolean]("in_print")
 
   override def * = (id, name, rating, score, inPrint).mapTo[Row]
 
-/** A note on at most one row, for testing lists drawn from a join. */
-final case class Note(rowId: Long, mark: Long)
+final case class Note(rowId: Long, votes: Long)
 
-/** The table of notes, which some rows have none of. */
 final class Notes(tag: Tag) extends Table[Note](tag, "list_notes"):
 
   def rowId = column[Long]("row_id")
-  def mark  = column[Long]("mark")
+  def votes = column[Long]("votes")
 
-  override def * = (rowId, mark).mapTo[Note]
+  override def * = (rowId, votes).mapTo[Note]
 
-/**
-  * Checks that running a query in the database gives exactly what running it in
-  * memory over the same items does, so that a list can move between the two
-  * without changing what it shows.
-  */
 class SqlListsSuite extends FunSuite:
 
   private val rows = TableQuery[Rows]
@@ -64,7 +55,7 @@ class SqlListsSuite extends FunSuite:
     ),
     Row(
       2,
-      "beta draft",
+      "beta edition",
       Some(45L),
       4.5,
       inPrint = false,
@@ -97,18 +88,17 @@ class SqlListsSuite extends FunSuite:
   private val score   = Field.of[Row]("score", _.score)
   private val inPrint = Field.of[Row]("inPrint", _.inPrint)
 
-  private val schema = Schema(name, rating, score, inPrint)
+  private val schema = ListSchema(name, rating, score, inPrint)
 
-  /** The columns storing the fields of [[schema]], for the given lists. */
   private def columnsOf(lists: SqlLists): lists.Columns[Rows] =
     lists.columns(schema)(
       lists.text[Rows]("name")(_.name.?),
-      lists.whole[Rows]("rating")(_.rating),
+      lists.integer[Rows]("rating")(_.rating),
       lists.real[Rows]("score")(_.score.?),
       lists.flag[Rows]("inPrint")(_.inPrint.?),
     )
 
-  /** Lists that always run queries in the database, however short. */
+  /** Runs every query in the database, however short the list. */
   private val lists = SqlLists(H2Profile, wholeUpTo = 0)
 
   private val columns = columnsOf(lists)
@@ -129,7 +119,6 @@ class SqlListsSuite extends FunSuite:
 
   override def afterAll(): Unit = db.close()
 
-  /** What the given lists reply to a query over every row, in stored order. */
   private def answered
     (lists: SqlLists, query: ListQuery)
     : Future[ListReply[Row]] =
@@ -161,24 +150,24 @@ class SqlListsSuite extends FunSuite:
     "NULLs last, ascending" ->
       ListQuery(order = List(rating.ascending, name.descending)),
     "ties kept in stored order" -> ListQuery(order = List(score.descending)),
-    "a window, and the total"   -> ListQuery(
+    "a page, and the total"     -> ListQuery(
       inPrint.is(true),
       List(name.ascending),
       Some(Page(1, 2)),
     ),
-    "a window past the end"          -> ListQuery(page = Some(Page(4, 10))),
-    "a window starting past the end" -> ListQuery(
+    "a page past the end"          -> ListQuery(page = Some(Page(4, 10))),
+    "a page starting past the end" -> ListQuery(
       order = List(name.ascending),
       page = Some(Page(40, 2)),
     ),
     "a value of a convertible kind" -> ListQuery(Filter.Compare(
       "rating",
-      Comparison.Eq,
+      Operator.Equal,
       Value.Real(45.0),
     )),
     "a cell typed into a header" -> ListQuery(
       CellFilter
-        .parse("rating", Kind.Whole, "40..80 | ?")
+        .parse("rating", Kind.Integer, "40..80 | ?")
         .getOrElse(Filter.never),
     ),
   )
@@ -222,7 +211,7 @@ class SqlListsSuite extends FunSuite:
       )
       .fold(fail(_), identity)
     db.run(action)
-      .map(paged => assertEquals(paged.items.map(_.id), List(1L, 4L)))
+      .map(window => assertEquals(window.items.map(_.id), List(1L, 4L)))
 
   test("columns must store exactly the fields of the schema"):
     intercept[IllegalArgumentException](
@@ -247,14 +236,14 @@ class SqlListsSuite extends FunSuite:
         schema.run(query, data),
       )
 
-  test("a long list is sent only the window asked for, capped"):
+  test("a long list is sent only the page asked for, capped"):
     answered(
       SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2),
       ListQuery(),
     ).map(reply =>
       assertEquals(
         reply,
-        ListReply.Window(Paged(
+        ListReply.Window(Window(
           data.take(2),
           data.size,
           Some(Page(0, 2)),
@@ -262,14 +251,14 @@ class SqlListsSuite extends FunSuite:
       ),
     )
 
-  test("a window narrowed by the server says which window it is"):
+  test("a page narrowed by the server says which page it is"):
     answered(
       SqlLists(H2Profile, wholeUpTo = 1, maxWindow = 2),
       ListQuery(page = Some(Page(1, 500))),
     ).map(reply =>
       assertEquals(
         reply,
-        ListReply.Window(Paged(
+        ListReply.Window(Window(
           data.slice(1, 3),
           data.size,
           Some(Page(1, 2)),
@@ -291,17 +280,17 @@ class SqlListsSuite extends FunSuite:
       ListQuery(),
     ).map(assertEquals(
       _,
-      ListReply.Window(Paged(data, data.size, Some(Page(0, 100)))),
+      ListReply.Window(Window(data, data.size, Some(Page(0, 100)))),
     ))
 
   test("a list drawn from a left join is queried by the joined columns"):
     val name   = Field.of[(Row, Option[Note])]("name", _._1.name)
-    val mark   = Field.of[(Row, Option[Note])]("mark", _._2.map(_.mark))
-    val joined = Schema(name, mark)
+    val votes  = Field.of[(Row, Option[Note])]("votes", _._2.map(_.votes))
+    val joined = ListSchema(name, votes)
     val stored = lists.columns(joined)(
       lists.text[(Rows, Rep[Option[Notes]])]("name")((row, _) => row.name.?),
-      lists.whole[(Rows, Rep[Option[Notes]])]("mark")((_, note) =>
-        note.map(_.mark),
+      lists.integer[(Rows, Rep[Option[Notes]])]("votes")((_, note) =>
+        note.map(_.votes),
       ),
     )
     val base = rows
@@ -310,8 +299,8 @@ class SqlListsSuite extends FunSuite:
       .sortBy((row, _) => row.id)
     val items = data.map(row => (row, noted.find(_.rowId == row.id)))
     val query = ListQuery(
-      !(mark < 2L),
-      List(mark.ascending, name.descending),
+      !(votes < 2L),
+      List(votes.ascending, name.descending),
     )
     val expected = joined.run(query, items).fold(fail(_), identity)
     val action   = lists.run(base, stored, query).fold(fail(_), identity)

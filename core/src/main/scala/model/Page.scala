@@ -4,41 +4,62 @@ package model
 import io.circe.{Codec, Decoder, Encoder}
 
 /**
-  * One window onto an ordered list.
+  * A page of an ordered list.
   *
   * @param offset
-  *   The number of items skipped before the window starts.
+  *   The number of items skipped before the page starts.
   *
   * @param limit
-  *   The greatest number of items in the window.
+  *   The greatest number of items on the page.
   */
 final case class Page(offset: Int, limit: Int) derives Codec.AsObject:
 
-  /** The items of a whole list that fall within this window. */
-  def slice[X](items: List[X]): List[X] = items.slice(offset, offset + limit)
+  /**
+    * Selects the items of a whole list that fall on this page.
+    *
+    * @tparam X
+    *   The type of the items.
+    *
+    * @param items
+    *   The whole list.
+    *
+    * @return
+    *   A list of the items on this page.
+    */
+  def slice[X](items: List[X]): List[X] = items.drop(offset).take(limit)
 
-  /** The window immediately after this one. */
-  def next: Page = copy(offset = offset + limit)
+  /** The page immediately after this one, its offset at most `Int.MaxValue`. */
+  def next: Page = copy(offset =
+    (offset.toLong + limit).min(Int.MaxValue.toLong).toInt,
+  )
 
-  /** The window immediately before this one, stopping at the start. */
+  /** The page immediately before this one, stopping at the start. */
   def previous: Page = copy(offset = (offset - limit).max(0))
 
-  /** This window, holding no more than the given number of items. */
+  /**
+    * Caps the size of this page.
+    *
+    * @param max
+    *   The greatest number of items the page may hold.
+    *
+    * @return
+    *   A page at the same offset holding at most `max` items.
+    */
   def capped(max: Int): Page = copy(limit = limit.min(max))
 
-  /** Whether this window is well-formed, starting at or after the beginning. */
+  /** Whether this page has a non-negative offset and a positive limit. */
   def valid: Boolean = offset >= 0 && limit > 0
 
   /**
-    * This window onto a list of the given length: itself, unless it starts past
-    * the list's end, in which case the last window of its size that holds
-    * anything, or the first when the list is empty. A list that shrinks while
-    * someone reads its last window, as a list reloaded while it changes may,
-    * then leaves them on the window that is last now, rather than on one with
-    * nothing in it.
+    * Fits this page to a list of the given length, so that a list that shrank
+    * while its last page was read stays on its last page.
     *
     * @param total
     *   The number of items in the list.
+    *
+    * @return
+    *   This page, unless it starts past the end of the list; then the last page
+    *   of its size that holds anything, or the first if the list is empty.
     */
   def within(total: Int): Page =
     if offset < total then this
@@ -46,49 +67,89 @@ final case class Page(offset: Int, limit: Int) derives Codec.AsObject:
 
 object Page:
 
-  /** The first window of the given size. */
+  /**
+    * Creates the first page of a given size.
+    *
+    * @param limit
+    *   The greatest number of items on the page.
+    *
+    * @return
+    *   A page at offset `0`.
+    */
   def first(limit: Int): Page = Page(0, limit)
 
 /**
-  * One window of a filtered list.
+  * A window of a filtered list: the items on one page of it.
+  *
+  * @tparam X
+  *   The type of the items.
   *
   * @param items
   *   The items in the window, in order.
   *
   * @param total
-  *   The number of items in the whole filtered list, across every window.
+  *   The number of items in the whole filtered list, across every page.
   *
   * @param page
-  *   The window these items are of, as it was answered, which need not be the
-  *   one asked for: a server may send a smaller window than was requested, and
-  *   a window starting past the end of the list is answered with the last that
-  *   holds anything (see [[Page.within]]); either way, this says which was
-  *   sent. `None` where the items are the whole of the filtered list.
+  *   The page sent, which may differ from the one requested: a server may send
+  *   a smaller one, and a page past the end of the list is answered with the
+  *   last (see [[Page.within]]). `None` where the items are the whole filtered
+  *   list.
   */
-final case class Paged[X]
+final case class Window[X]
   (
     items: List[X],
     total: Int,
     page: Option[Page] = None,
   ):
 
-  /** The same window, with each item transformed. */
-  def map[Y](transform: X => Y): Paged[Y] =
-    Paged(items.map(transform), total, page)
+  /**
+    * Transforms each item of this window.
+    *
+    * @tparam Y
+    *   The type of the transformed items.
+    *
+    * @param transform
+    *   The transformation of one item.
+    *
+    * @return
+    *   The same window holding the transformed items.
+    */
+  def map[Y](transform: X => Y): Window[Y] =
+    Window(items.map(transform), total, page)
 
-object Paged:
+object Window:
 
-  /** The window of an empty list. */
-  def empty[X]: Paged[X] = Paged(List.empty, 0)
+  /**
+    * Creates the window of an empty list.
+    *
+    * @tparam X
+    *   The type of the items.
+    *
+    * @return
+    *   An empty window.
+    */
+  def empty[X]: Window[X] = Window(List.empty, 0)
 
-  /** A whole list, as one window. */
-  def whole[X](items: List[X]): Paged[X] = Paged(items, items.size)
+  /**
+    * Wraps a whole list as one window.
+    *
+    * @tparam X
+    *   The type of the items.
+    *
+    * @param items
+    *   The whole list.
+    *
+    * @return
+    *   A window holding every item, with no page.
+    */
+  def whole[X](items: List[X]): Window[X] = Window(items, items.size)
 
   // Written by hand, as a derived codec would demand a whole codec of `X`.
-  given [X : Encoder]: Encoder[Paged[X]] =
-    Encoder.forProduct3("items", "total", "page")(paged =>
-      (paged.items, paged.total, paged.page),
+  given [X : Encoder]: Encoder[Window[X]] =
+    Encoder.forProduct3("items", "total", "page")(window =>
+      (window.items, window.total, window.page),
     )
 
-  given [X : Decoder]: Decoder[Paged[X]] =
-    Decoder.forProduct3("items", "total", "page")(Paged.apply[X])
+  given [X : Decoder]: Decoder[Window[X]] =
+    Decoder.forProduct3("items", "total", "page")(Window.apply[X])
