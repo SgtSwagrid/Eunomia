@@ -4,9 +4,9 @@
   <p>Filtering, ordering and paging of lists for full stack <a href="https://www.scala-lang.org/">Scala</a> websites.</p>
 
   <span>
-    <a href="https://github.com/SgtSwagrid/Eunomia/actions/workflows/build-integrity.yml"><img src="https://github.com/SgtSwagrid/Eunomia/actions/workflows/build-integrity.yml/badge.svg" alt="Build status" /></a>
+    <a href="https://github.com/SgtSwagrid/eunomia/actions/workflows/build-integrity.yml"><img src="https://github.com/SgtSwagrid/eunomia/actions/workflows/build-integrity.yml/badge.svg" alt="Build status" /></a>
     <a href="https://search.maven.org/artifact/com.alecdorrington/eunomia-core_3"><img src="https://img.shields.io/maven-central/v/com.alecdorrington/eunomia-core_3.svg" alt="Maven Central" /></a>
-    <a href="https://alecdorrington.com/Eunomia"><img src="https://img.shields.io/badge/docs-latest-blue.svg" alt="Documentation" /></a>
+    <a href="https://alecdorrington.com/eunomia"><img src="https://img.shields.io/badge/docs-latest-blue.svg" alt="Documentation" /></a>
   </span>
 
 </div>
@@ -184,8 +184,8 @@ Issues are very welcome; for anything more, please open an issue first.
 
 ## 👁️ See also
 
-- [Hecate](https://github.com/SgtSwagrid/Hecate), a sibling, for user accounts, groups and permissions.
-- [Iris](https://github.com/SgtSwagrid/Iris), a sibling, a provider-agnostic client for large language models.
-- [Dike](https://github.com/SgtSwagrid/Dike), a sibling, for ranking by pairwise comparison.
+- [Hecate](https://github.com/SgtSwagrid/hecate), a sibling, for user accounts, groups and permissions.
+- [Iris](https://github.com/SgtSwagrid/iris), a sibling, a provider-agnostic client for large language models.
+- [Dike](https://github.com/SgtSwagrid/dike), a sibling, for ranking by pairwise comparison.
 - [qr4s](https://github.com/SgtSwagrid/qr4s), a sibling, for generating QR codes, on the JVM and in the browser.
 - This library was made using [Scala Library Template](https://github.com/SgtSwagrid/scala-library-template).

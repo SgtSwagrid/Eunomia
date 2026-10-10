@@ -1,12 +1,12 @@
 ThisBuild / description :=
   "Filtering, ordering and paging of lists for full stack Scala websites."
 
-ThisBuild / homepage := Some(uri("https://github.com/SgtSwagrid/Eunomia"))
+ThisBuild / homepage := Some(uri("https://github.com/SgtSwagrid/eunomia"))
 
 // Stated, as the git remote is the host's when built there.
 ThisBuild / scmInfo := Some(ScmInfo(
-  uri("https://github.com/SgtSwagrid/Eunomia"),
-  "scm:git:https://github.com/SgtSwagrid/Eunomia.git",
+  uri("https://github.com/SgtSwagrid/eunomia"),
+  "scm:git:https://github.com/SgtSwagrid/eunomia.git",
 ))
 
 ThisBuild / organization         := "com.alecdorrington"
