@@ -4,18 +4,17 @@ package client
 import com.raquo.laminar.api.L.*
 
 /** Shows and hides elements by a condition, keeping them mounted either way. */
-object Visibility:
+private[client] object Visibility:
 
   /**
-    * Hides the element it is applied to while the condition is `false`.
+    * Hides the element it is applied to while a condition is `false`, leaving
+    * it its own `display` while it is `true`.
     *
     * @param shown
     *   Whether the element is shown.
     *
-    * @param as
-    *   The CSS `display` value while it is shown. By default, the element's
-    *   own.
+    * @return
+    *   A modifier binding the element's `display`.
     */
-  def visibleWhen
-    (shown: Signal[Boolean], as: String = "")
-    : Modifier[HtmlElement] = display <-- shown.map(if _ then as else "none")
+  def visibleWhen(shown: Signal[Boolean]): Modifier[HtmlElement] = display <--
+    shown.map(if _ then "" else "none")

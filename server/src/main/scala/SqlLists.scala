@@ -2,7 +2,7 @@ package com.alecdorrington.eunomia
 package server
 
 import com.alecdorrington.eunomia.model.{
-  Comparison, Filter, Kind, ListQuery, ListReply, Order, Paged, Schema, Value,
+  Filter, Kind, ListQuery, ListReply, ListSchema, Operator, Order, Value, Window,
 }
 import java.util.Locale
 import scala.concurrent.ExecutionContext
@@ -12,33 +12,32 @@ import slick.lifted.{ColumnOrdered, Ordered}
 
 /**
   * Answers [[ListQuery]]s over the rows of a database table. A short list is
-  * sent whole, for the browser to query as it pleases without asking again; a
-  * long one is filtered, ordered and paged in SQL, so that only the window
-  * asked for is ever loaded. Which applies is decided here, per request, so no
-  * caller need know.
+  * sent whole, for the browser to query without asking again; a long one is
+  * filtered, ordered and paged in SQL, so that only the page asked for is
+  * loaded.
   *
-  * The results agree with those of a [[Schema]] over the same items: absent
-  * values (`NULL`s) fail every comparison and come last in either direction,
-  * and text is sought ignoring case.
+  * The results agree with those of a [[ListSchema]] over the same items:
+  * `NULL`s fail every comparison and come last in either direction, and text is
+  * sought ignoring case.
   *
   * {{{
   * val lists   = SqlLists(H2Profile)
   * val columns = lists.columns(Book.schema)(
   *   lists.text[Books]("name")(_.name.?),
-  *   lists.whole[Books]("rating")(_.rating), // Already optional.
+  *   lists.integer[Books]("rating")(_.rating), // Already optional.
   * )
   * lists.answer(books.filter(_.owner === user).sortBy(_.id), columns, query)
   * }}}
   *
   * @param profile
-  *   The Slick profile of the host application's database.
+  *   The Slick profile of the host's database.
   *
   * @param wholeUpTo
-  *   The most rows a list may have to be sent whole.
+  *   The greatest number of rows a list may have to be sent whole.
   *
   * @param maxWindow
-  *   The most rows sent in any one window of a longer list, however many are
-  *   asked for.
+  *   The greatest number of rows sent in one window of a longer list, however
+  *   many are asked for.
   */
 final class SqlLists
   (
@@ -49,42 +48,102 @@ final class SqlLists
 
   import profile.api.*
 
-  /** The context the actions' combinators run on: inline, as each is trivial. */
+  /** Parasitic, as every combinator run on it is trivial. */
   private given ExecutionContext = ExecutionContext.parasitic
 
   /**
-    * One column of a table that a list may be filtered and ordered by, under
-    * the name of the field it stores.
+    * A column of a table that a list may be filtered and ordered by, under the
+    * name of the field it stores.
     *
     * @tparam E
     *   The type of the table's rows, as Slick sees them.
+    *
+    * @param name
+    *   The name of the field the column stores.
+    *
+    * @param kind
+    *   The kind of the field the column stores.
     */
   sealed abstract class Column[-E](val name: String, val kind: Kind):
 
-    /** Whether the column compares with the given value as stated. */
-    def compare
-      (
-        row: E,
-        comparison: Comparison,
-        value: Value,
-      )
-      : Rep[Boolean]
+    /**
+      * Compares the column with a value.
+      *
+      * @param row
+      *   The row.
+      *
+      * @param operator
+      *   The operator comparing the column with `value`.
+      *
+      * @param value
+      *   The value compared with.
+      *
+      * @return
+      *   A condition holding where the operator does, never where the column is
+      *   `NULL`.
+      */
+    def compare(row: E, operator: Operator, value: Value): Rep[Boolean]
 
-    /** Whether the column equals any one of the given values. */
+    /**
+      * Tests the column against several values.
+      *
+      * @param row
+      *   The row.
+      *
+      * @param values
+      *   The values the column may equal.
+      *
+      * @return
+      *   A condition holding where the column equals any one of `values`.
+      */
     def oneOf(row: E, values: List[Value]): Rep[Boolean]
 
-    /** Whether the column is `NULL`. */
+    /**
+      * Tests the column for `NULL`.
+      *
+      * @param row
+      *   The row.
+      *
+      * @return
+      *   A condition holding where the column is `NULL`.
+      */
     def missing(row: E): Rep[Boolean]
 
-    /** Whether the column contains the given text, ignoring case. */
+    /**
+      * Searches the column for text, ignoring case.
+      *
+      * @param row
+      *   The row.
+      *
+      * @param text
+      *   The text sought.
+      *
+      * @return
+      *   A condition holding where the column contains `text`, never for a
+      *   column that is not text.
+      */
     def contains(row: E, text: String): Rep[Boolean] = LiteralColumn(false)
 
-    /** Orders by the column, with `NULL`s last. */
+    /**
+      * Orders by the column, with `NULL`s last.
+      *
+      * @param row
+      *   The row.
+      *
+      * @param descending
+      *   Whether the greatest values come first.
+      *
+      * @return
+      *   An ordering of rows by the column.
+      */
     def ordered(row: E, descending: Boolean): Ordered
 
   /**
-    * The columns storing every field of one list, and nothing else. Obtained
-    * only from [[columns]], which checks them against the list's schema.
+    * The columns storing every field of one list, and nothing else, as checked
+    * by [[columns]], their only source.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
     */
   final class Columns[E] private[SqlLists] (
     private[SqlLists] val byName: Map[String, Column[E]],
@@ -92,15 +151,23 @@ final class SqlLists
   )
 
   /**
-    * The columns storing the fields of a list, checked against its schema: each
-    * field must be stored by exactly one column of the same name and kind. A
-    * mismatch is a programming error, so it is raised at once, when the server
-    * starts, rather than when some request first names the field.
+    * Checks the columns storing the fields of a list against its schema. Throws
+    * an `IllegalArgumentException` unless each field is stored by exactly one
+    * column of the same name and kind, so call it at startup.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
     *
     * @param schema
     *   The fields of the list, as shared with the client.
+    *
+    * @param stored
+    *   The columns storing the fields.
+    *
+    * @return
+    *   The checked columns.
     */
-  def columns[E](schema: Schema[?])(stored: Column[E]*): Columns[E] =
+  def columns[E](schema: ListSchema[?])(stored: Column[E]*): Columns[E] =
     val byName = stored.map(column => column.name -> column).toMap
     val kinds  = byName.view.mapValues(_.kind).toMap
     require(
@@ -109,41 +176,107 @@ final class SqlLists
     )
     new Columns(byName, kinds)
 
-  /** A column of text, read as nullable so that any text column fits. */
-  def text[E](name: String)(rep: E => Rep[Option[String]]): Column[E] =
-    TextColumn(name, rep)
-
-  /** A column of whole numbers, read as nullable. */
-  def whole[E](name: String)(rep: E => Rep[Option[Long]]): Column[E] = Typed(
-    name,
-    Kind.Whole,
-    rep,
-    { case Value.Whole(number) => number },
-  )
-
-  /** A column of real numbers, read as nullable. */
-  def real[E](name: String)(rep: E => Rep[Option[Double]]): Column[E] = Typed(
-    name,
-    Kind.Real,
-    rep,
-    { case Value.Real(number) => number },
-  )
-
-  /** A column of truth values, read as nullable. */
-  def flag[E](name: String)(rep: E => Rep[Option[Boolean]]): Column[E] = Typed(
-    name,
-    Kind.Flag,
-    rep,
-    { case Value.Flag(flag) => flag },
-  )
+  /**
+    * Creates a column of text. It is read as nullable, so that any text column
+    * fits; use `.?` on one that is not.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
+    *
+    * @param name
+    *   The name of the field the column stores.
+    *
+    * @param column
+    *   The function selecting the column from a row.
+    *
+    * @return
+    *   A column of [[Kind.Text]].
+    */
+  def text[E](name: String)(column: E => Rep[Option[String]]): Column[E] =
+    TextColumn(name, column)
 
   /**
-    * Answers a query over the rows of the given base query, which is where the
-    * host application restricts a list to what its user may see.
+    * Creates a column of integers, read as nullable.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
+    *
+    * @param name
+    *   The name of the field the column stores.
+    *
+    * @param column
+    *   The function selecting the column from a row.
+    *
+    * @return
+    *   A column of [[Kind.Integer]].
+    */
+  def integer[E](name: String)(column: E => Rep[Option[Long]]): Column[E] =
+    TypedColumn(
+      name,
+      Kind.Integer,
+      column,
+      { case Value.Integer(number) => number },
+    )
+
+  /**
+    * Creates a column of real numbers, read as nullable.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
+    *
+    * @param name
+    *   The name of the field the column stores.
+    *
+    * @param column
+    *   The function selecting the column from a row.
+    *
+    * @return
+    *   A column of [[Kind.Real]].
+    */
+  def real[E](name: String)(column: E => Rep[Option[Double]]): Column[E] =
+    TypedColumn(
+      name,
+      Kind.Real,
+      column,
+      { case Value.Real(number) => number },
+    )
+
+  /**
+    * Creates a column of truth values, read as nullable.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
+    *
+    * @param name
+    *   The name of the field the column stores.
+    *
+    * @param column
+    *   The function selecting the column from a row.
+    *
+    * @return
+    *   A column of [[Kind.Flag]].
+    */
+  def flag[E](name: String)(column: E => Rep[Option[Boolean]]): Column[E] =
+    TypedColumn(
+      name,
+      Kind.Flag,
+      column,
+      { case Value.Flag(flag) => flag },
+    )
+
+  /**
+    * Answers a query over the rows of a base query, which is where the host
+    * restricts a list to what its user may see.
+    *
+    * @tparam E
+    *   The type of the table's rows, as Slick sees them.
+    *
+    * @tparam U
+    *   The type of the rows as loaded.
     *
     * @param rows
-    *   The rows the list is drawn from, in their stored order. Order them, or
-    *   the order of the rows sent, and so of every window, is undefined.
+    *   The rows the list is drawn from, in stored order. Without an order, the
+    *   order of every window is undefined.
     *
     * @param columns
     *   The columns storing the list's fields.
@@ -152,7 +285,8 @@ final class SqlLists
     *   The query to answer.
     *
     * @return
-    *   An action loading the reply, or why the query cannot be answered.
+    *   Either a message saying why the query cannot be answered, or an action
+    *   loading the reply.
     */
   def answer[E, U]
     (
@@ -163,7 +297,7 @@ final class SqlLists
     : Either[String, DBIO[ListReply[U]]] = run(
     rows,
     columns,
-    query.limited(maxWindow),
+    query.capped(maxWindow),
   ).map(window =>
     probe(rows)
       .result
@@ -175,28 +309,20 @@ final class SqlLists
   )
 
   /**
-    * The start of a list, one row longer than a list may be to be sent whole,
-    * which is all it takes to tell which of the two it is. A short list is then
-    * already loaded, and a long one has cost a bounded read rather than a count
-    * of every row its user may see.
-    *
-    * @param rows
-    *   The rows the list is drawn from, in their stored order.
+    * One row more than a list sent whole may have: enough to tell whether it is
+    * short, without counting every row.
     */
   private[server] def probe[E, U](rows: Query[E, U, Seq]): Query[E, U, Seq] =
     rows.take(wholeUpTo + 1)
 
-  /**
-    * Runs a query in the database, whatever the length of the list, loading the
-    * window of matching rows together with the number matching in all.
-    */
+  /** Runs a query in SQL, whatever the length of the list. */
   private[server] def run[E, U]
     (
       rows: Query[E, U, Seq],
       columns: Columns[E],
       query: ListQuery,
     )
-    : Either[String, DBIO[Paged[U]]] = query
+    : Either[String, DBIO[Window[U]]] = query
     .checked(columns.kinds)
     .map(checked =>
       fetch(
@@ -212,21 +338,19 @@ final class SqlLists
       columns: Map[String, Column[E]],
       query: ListQuery,
     )
-    : DBIO[Paged[U]] =
-    val ordered = sorted(matching, columns, query.order)
-    // Counted first, as a window starting past the end is moved back to the
-    // last that holds anything, exactly as in memory: see `Page.within`.
+    : DBIO[Window[U]] =
+    val ordered = orderedBy(matching, columns, query.order)
+    // Counted first, so that a page past the end moves back as it does in
+    // memory (see `Page.within`).
     matching
       .length
       .result
       .flatMap: total =>
         val page = query.page.map(_.within(total))
         page
-          .fold(ordered)(window =>
-            ordered.drop(window.offset).take(window.limit),
-          )
+          .fold(ordered)(shown => ordered.drop(shown.offset).take(shown.limit))
           .result
-          .map(items => Paged(items.toList, total, page))
+          .map(items => Window(items.toList, total, page))
 
   private def holds[E]
     (
@@ -238,14 +362,14 @@ final class SqlLists
     not = !_,
     all = _.reduceOption(_ && _).getOrElse(LiteralColumn(true)),
     any = _.reduceOption(_ || _).getOrElse(LiteralColumn(false)),
-    compare = (field, comparison, value) =>
-      columns(field).compare(row, comparison, value),
+    compare =
+      (field, operator, value) => columns(field).compare(row, operator, value),
     contains = (field, text) => columns(field).contains(row, text),
     oneOf = (field, values) => columns(field).oneOf(row, values),
     missing = field => columns(field).missing(row),
   )
 
-  private def sorted[E, U]
+  private def orderedBy[E, U]
     (
       rows: Query[E, U, Seq],
       columns: Map[String, Column[E]],
@@ -264,33 +388,23 @@ final class SqlLists
         ),
       )(using identity)
 
-  /**
-    * A column of some type `B` that the database compares natively.
-    *
-    * @param literal
-    *   Reads a checked value, which is always of this column's kind, as a `B`.
-    */
-  private class Typed[E, B : BaseTypedType]
+  private class TypedColumn[E, B : BaseTypedType]
     (
       name: String,
       kind: Kind,
-      rep: E => Rep[Option[B]],
+      column: E => Rep[Option[B]],
       literal: PartialFunction[Value, B],
     )
     extends Column[E](name, kind):
 
     override def compare
-      (
-        row: E,
-        comparison: Comparison,
-        value: Value,
-      )
+      (row: E, operator: Operator, value: Value)
       : Rep[Boolean] = literal
       .lift(value)
       .fold(LiteralColumn(false): Rep[Boolean])(bound =>
         compared(
-          rep(row),
-          comparison,
+          column(row),
+          operator,
           LiteralColumn(bound).bind,
         ).getOrElse(false),
       )
@@ -298,12 +412,12 @@ final class SqlLists
     override def oneOf(row: E, values: List[Value]): Rep[Boolean] =
       val bounds = values.flatMap(literal.lift)
       if bounds.isEmpty then LiteralColumn(false)
-      else rep(row).inSetBind(bounds).getOrElse(false)
+      else column(row).inSetBind(bounds).getOrElse(false)
 
-    override def missing(row: E): Rep[Boolean] = rep(row).isEmpty
+    override def missing(row: E): Rep[Boolean] = column(row).isEmpty
 
     override def ordered(row: E, descending: Boolean): Ordered = ColumnOrdered(
-      rep(row),
+      column(row),
       SqlOrdering(
         if descending then SqlOrdering.Desc else SqlOrdering.Asc,
         SqlOrdering.NullsLast,
@@ -312,32 +426,31 @@ final class SqlLists
 
     private def compared
       (
-        column: Rep[Option[B]],
-        comparison: Comparison,
+        selected: Rep[Option[B]],
+        operator: Operator,
         bound: Rep[B],
       )
-      : Rep[Option[Boolean]] = comparison match
-      case Comparison.Eq => column === bound
-      case Comparison.Ne => column =!= bound
-      case Comparison.Lt => column < bound
-      case Comparison.Le => column <= bound
-      case Comparison.Gt => column > bound
-      case Comparison.Ge => column >= bound
+      : Rep[Option[Boolean]] = operator match
+      case Operator.Equal   => selected === bound
+      case Operator.Unequal => selected =!= bound
+      case Operator.Less    => selected < bound
+      case Operator.AtMost  => selected <= bound
+      case Operator.Greater => selected > bound
+      case Operator.AtLeast => selected >= bound
 
-  /** A column of text, which alone may be searched within. */
   private final class TextColumn[E]
     (
       name: String,
-      rep: E => Rep[Option[String]],
+      column: E => Rep[Option[String]],
     )
-    extends Typed[E, String](
+    extends TypedColumn[E, String](
       name,
       Kind.Text,
-      rep,
+      column,
       { case Value.Text(text) => text },
     ):
 
-    override def contains(row: E, text: String): Rep[Boolean] = rep(row)
+    override def contains(row: E, text: String): Rep[Boolean] = column(row)
       .toLowerCase
       .like(
         LiteralColumn(SqlLists.pattern(text)).bind,
@@ -347,18 +460,16 @@ final class SqlLists
 
 object SqlLists:
 
-  /** The character that makes the next in a `LIKE` pattern literal. */
-  private val escape = '\\'
+  private val escape: Char = '\\'
+
+  private val special: Set[Char] = Set('%', '_', escape)
 
   /**
-    * The `LIKE` pattern matching text which contains the given text, folded to
-    * lower case by a fixed locale. The column it is matched against is folded
-    * by the database instead, whose own rules apply there.
+    * Folds the text to lower case by a fixed locale; the column it is matched
+    * against is folded by the database's own rules.
     */
   private def pattern(text: String): String =
     val literal = text
       .toLowerCase(Locale.ROOT)
-      .flatMap:
-        case special @ ('%' | '_' | '\\') => s"$escape$special"
-        case plain                        => plain.toString
+      .flatMap(char => if special(char) then s"$escape$char" else char.toString)
     s"%$literal%"
